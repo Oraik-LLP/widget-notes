@@ -1,0 +1,27 @@
+[CmdletBinding(SupportsShouldProcess)]
+param()
+$ErrorActionPreference = 'Stop'
+$installFolder = [IO.Path]::GetFullPath((Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\WidgetNotes'))
+$expectedParent = [IO.Path]::GetFullPath((Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs'))
+if ([IO.Path]::GetDirectoryName($installFolder) -ne $expectedParent -or [IO.Path]::GetFileName($installFolder) -ne 'WidgetNotes') { throw 'Unexpected installation path; removal stopped.' }
+if (Get-Process WidgetNotes -ErrorAction SilentlyContinue) { throw 'Exit WidgetNotes from its tray menu first so your notes are saved.' }
+if ($PSCmdlet.ShouldProcess($installFolder, 'Remove WidgetNotes program and registration; keep all notebooks and preferences')) {
+    $runPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    Remove-ItemProperty -Path $runPath -Name WidgetNotes -ErrorAction SilentlyContinue
+    foreach ($shortcutFile in @((Join-Path ([Environment]::GetFolderPath('Desktop')) 'WidgetNotes.lnk'), (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\WidgetNotes.lnk'))) {
+        if (Test-Path -LiteralPath $shortcutFile) { Remove-Item -LiteralPath $shortcutFile -Force }
+    }
+    $extension = Get-Item 'HKCU:\Software\Classes\.wnote' -ErrorAction SilentlyContinue
+    if ($extension -and $extension.GetValue('') -eq 'WidgetNotes.Notebook') { $extension.DeleteValue('', $false) }
+    Remove-ItemProperty -Path 'HKCU:\Software\Classes\.wnote\OpenWithProgids' -Name 'WidgetNotes.Notebook' -ErrorAction SilentlyContinue
+    if (Test-Path 'HKCU:\Software\Classes\WidgetNotes.Notebook') { Remove-Item -LiteralPath 'HKCU:\Software\Classes\WidgetNotes.Notebook' -Recurse -Force }
+    if (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WidgetNotes') { Remove-Item -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WidgetNotes' -Recurse -Force }
+    # Exact filenames only: never recursively delete a user-selected directory.
+    foreach ($name in @('WidgetNotes.exe', 'Uninstall.ps1')) {
+        $target = [IO.Path]::GetFullPath((Join-Path $installFolder $name))
+        if ([IO.Path]::GetDirectoryName($target) -ne $installFolder) { throw 'Unexpected target; removal stopped.' }
+        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force }
+    }
+    if ((Test-Path -LiteralPath $installFolder) -and -not (Get-ChildItem -LiteralPath $installFolder -Force)) { Remove-Item -LiteralPath $installFolder }
+    Write-Host 'WidgetNotes removed. All notebooks and preferences were kept.'
+}

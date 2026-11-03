@@ -1,0 +1,31 @@
+WidgetNotes 1.2.0 — Windows x64 verification
+
+BUILD
+- .NET SDK 10.0.402; bundled .NET runtime 10.0.13.
+- Self-contained WPF single-file executable; no separate runtime install required.
+- Release build completed. The only build warning was NU1900 because this environment could not reach NuGet's vulnerability-data service; packages were restored from the local cache.
+- Source includes a GitHub Actions workflow for Windows builds, artifacts, and tagged releases. No GitHub remote is configured in this workspace.
+
+PACKAGE
+- Launchable app: dist/package/WidgetNotes.exe
+- Installer: dist/package/Install.cmd (per-user setup, Start menu/Desktop shortcuts, uninstall registration, .wnote association, startup at sign-in, and launch after setup).
+- Portable archive: dist/WidgetNotes-Windows-x64.zip
+- SHA-256: 48A37D880279AAED56D949B604AB119FD5EDAA842812D4BD6BBCFF5A0D1695F2
+
+CHECKS ON THE PACKAGED APP
+- 24 storage, editing, backup, archive, and validation checks passed.
+- 14 WPF checks passed: task control rendering/editing, undo, page navigation, task entry and multiline paste, tray show/hide recovery, canvas drag/resize, page search, image import, persistence, session-end save, and portable archive round trip.
+- UI-thread text edit through render: 6.2 ms in the final diagnostic run.
+- Startup to content-ready: 789 ms in the benchmark run; working set 146.6 MiB; sampled idle CPU 0.026% of total machine capacity.
+- Test screenshots are in dist/ui-test-final. These are RenderTargetBitmap captures, not physical display recordings.
+- This Codex session has an Explorer process but no SHELLDLL_DefView desktop host. The widget therefore exercises its floating-window fallback here; on normal Explorer desktop sessions it attaches as a compact desktop widget and retries automatically when Explorer is unavailable.
+
+INSTALLATION
+- Installer previewed with PowerShell -WhatIf before applying.
+- Startup registration and installed shortcuts are verified for the current Windows user.
+- A sign-out/sign-in cycle was not run; Windows must be restarted or the user signed out/in to observe automatic startup.
+
+LIMITS
+- App is unsigned because no signing certificate was supplied.
+- Physical Explorer desktop layering, mixed-DPI monitors, hotkey conflicts, printer/PDF output, and screen-reader behavior still require checks on a normal interactive Windows session.
+

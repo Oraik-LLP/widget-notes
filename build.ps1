@@ -35,14 +35,15 @@ if ($LASTEXITCODE -ne 0) { throw 'Icon build failed.' }
 
 & $DotNetPath restore $project --configfile $nugetConfig --runtime win-x64
 if ($LASTEXITCODE -ne 0) { throw 'WidgetNotes restore failed.' }
-& $DotNetPath publish $project -c Release -r win-x64 --self-contained true --no-restore -o $publishRoot -p:Version=1.4.0
+& $DotNetPath publish $project -c Release -r win-x64 --self-contained true --no-restore -o $publishRoot -p:Version=1.5.0
 if ($LASTEXITCODE -ne 0) { throw 'WidgetNotes publish failed.' }
 
 foreach ($legacy in @('ThirdPartyNotices.txt', 'ThirdParty\WPF-Liquid-Glass-Effect-MIT.txt')) {
     $legacyFile = Join-Path $publishRoot $legacy
     if (Test-Path -LiteralPath $legacyFile) { Remove-Item -LiteralPath $legacyFile -Force }
 }
-foreach ($name in @('Install.cmd', 'Install.ps1', 'Uninstall.ps1', 'README.md', 'DotNet-LICENSE.txt', 'DotNet-ThirdPartyNotices.txt')) {
+New-Item -ItemType Directory -Path (Join-Path $publishRoot 'ThirdParty') -Force | Out-Null
+foreach ($name in @('Install.cmd', 'Install.ps1', 'Uninstall.ps1', 'README.md', 'DotNet-LICENSE.txt', 'DotNet-ThirdPartyNotices.txt', 'ThirdParty\WPF-UI-LICENSE.md', 'ThirdParty\WPF-UI-NOTICES.txt', 'ThirdParty\WPF-UI-Abstractions-LICENSE.md')) {
     $source = Join-Path $repoRoot $name
     if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $publishRoot $name) -Force }
 }

@@ -48,6 +48,7 @@ public sealed class Preferences
     public bool Pinned { get; set; }
     public bool LockWidget { get; set; }
     public bool CompactMode { get; set; }
+    public bool CanvasMode { get; set; }
     public double WorkspaceLeft { get; set; } = 100;
     public double WorkspaceTop { get; set; } = 80;
     public double WorkspaceWidth { get; set; } = 1180;

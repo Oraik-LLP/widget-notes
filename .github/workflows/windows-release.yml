@@ -39,7 +39,7 @@ jobs:
           $report = Get-Content (Join-Path $testRoot 'ui-test.txt') -Raw
           if ($report -notmatch 'ALL UI TESTS PASSED') { throw 'WPF interaction diagnostics did not report success.' }
           Write-Host $report
-      - name: Application window diagnostics
+      - name: Widget window diagnostics
         shell: pwsh
         run: |
           $testRoot = Join-Path $env:RUNNER_TEMP 'WidgetNotes-application-test'

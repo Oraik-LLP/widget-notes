@@ -22,8 +22,8 @@ public static class Desktop
         get { uint v = unchecked((uint)(int)(Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\DWM", "ColorizationColor", unchecked((int)0xff0078d4)) ?? unchecked((int)0xff0078d4))); return $"#{(v >> 16) & 255:X2}{(v >> 8) & 255:X2}{v & 255:X2}"; }
     }
     public static void Shell(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-    [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
-    [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
+    [DllImport("user32.dll", SetLastError = true)] public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
+    [DllImport("user32.dll", SetLastError = true)] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
     public static (uint Mods, uint Key) ParseShortcut(string text)
     {
         uint mods = 0x4000; Key key = Key.None;
@@ -61,9 +61,13 @@ public sealed class App : System.Windows.Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        DispatcherUnhandledException += (_, ev) => { MessageBox.Show(ev.Exception.Message, "WidgetNotes — unexpected error"); ev.Handled = true; };
+        DispatcherUnhandledException += (_, ev) =>
+        {
+            try { Directory.CreateDirectory(Path.GetDirectoryName(ActualSettingsFile)!); File.AppendAllText(Path.ChangeExtension(ActualSettingsFile, ".errors.log"), DateTimeOffset.Now.ToString("O") + "\n" + ev.Exception + "\n\n"); } catch { }
+            MessageBox.Show(ev.Exception.Message, "WidgetNotes — unexpected error"); ev.Handled = true;
+        };
         string suffix = TestRoot == null ? Environment.UserName : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(TestRoot))))[..16];
-        string instance = typeof(App).Assembly.GetName().Version?.ToString(2) ?? "1.0";
+        string instance = typeof(App).Assembly.GetName().Version?.ToString() ?? "1.0.0.0";
         mutex = new Mutex(true, "Local\\WidgetNotes-" + instance + "-" + suffix, out bool first);
         wake = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\WidgetNotesWake-" + instance + "-" + suffix);
         if (!first)
@@ -98,7 +102,7 @@ public sealed class App : System.Windows.Application
             tray = new System.Windows.Forms.NotifyIcon { Icon = AppArtwork.TrayIcon, Text = "WidgetNotes", Visible = true };
             var menu = new System.Windows.Forms.ContextMenuStrip();
             menu.Items.Add("Show / hide", null, (_, _) => { if (MainWindow is MainWindow active) active.ToggleVisibility(); });
-            menu.Items.Add("Open workspace", null, (_, _) => { if (MainWindow is MainWindow active) active.Expand(true); });
+            menu.Items.Add("Find page…", null, (_, _) => { if (MainWindow is MainWindow active) active.ShowPageSearch(); });
             menu.Items.Add("Exit", null, async (_, _) => { if (MainWindow is MainWindow active) await active.ExitApp(); }); tray.ContextMenuStrip = menu;
             tray.DoubleClick += (_, _) => { if (MainWindow is MainWindow active) active.ToggleVisibility(); };
             _ = Task.Run(() => { while (wake.WaitOne()) Dispatcher.BeginInvoke(async () =>

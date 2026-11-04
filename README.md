@@ -1,37 +1,40 @@
 # WidgetNotes
 
-WidgetNotes 1.4 is a Windows notebook application with an optional compact view. It uses the Windows compositor for live translucent glass, rounded window chrome, and matching menus, settings, dropdowns, checkboxes, and dialogs.
+WidgetNotes 1.5 is a compact Windows desktop widget for checklists, notes, images, and saved AI output. It has no separate application workspace, canvas, or taskbar button. Use its tray icon or configured shortcut to show or hide it.
 
-## Install and launch
+## Install
 
-Extract `WidgetNotes-Windows-x64.zip`, then double-click `Install.cmd`. Setup installs for the current Windows user, adds Desktop and Start menu shortcuts, registers the uninstaller and `.wnote` files, enables launch at sign-in, and opens the application. No administrator account or separately installed .NET runtime is required.
+Extract `WidgetNotes-Windows-x64.zip` and double-click `Install.cmd`. Setup installs for the current Windows user, creates Desktop and Start menu shortcuts, registers `.wnote` files and an uninstaller, enables launch at sign-in, and opens the widget. No separately installed .NET runtime is needed.
 
-The app opens in the full workspace by default. Use **Compact** in the title bar for a smaller window and **Workspace** to return. Both views are ordinary Windows application windows with taskbar presence. Drag the title bar to move, resize from the edges, or use minimize/maximize/close. Closing saves and exits; the tray menu can hide or reveal the window while it is running.
+Existing WidgetNotes shortcuts on the Desktop, Start menu, taskbar, and Startup folder are repaired if they target an older executable. The installer keeps notebook data and preferences. Use Installed apps or `Uninstall.ps1` to remove the program.
 
-The previous screenshot-based glass renderer and Explorer desktop attachment have been removed. Backgrounds are composed by Windows without copying desktop icons or hiding the app to refresh. During interactive dragging and resizing the material switches to a lighter compositor blur, then restores acrylic when the gesture ends. Windows may simplify transparency under system performance or accessibility conditions.
+## Move, resize, and glass
 
-## Notebook features
+Drag the title area to move the widget and drag its edges to resize it. During either gesture, the live glass is suspended and replaced by a soft solid surface. The live desktop material returns when the gesture finishes. No desktop screenshots are used by the renderer.
 
-- Create checklist and note pages, edit tasks in place, paste multiline lists, search pages, undo changes, and rearrange or resize blocks in the workspace.
-- Add images and file attachments. Files are copied into the notebook; attachments open in their default Windows app.
-- Use **Import Markdown** or **menu → Import AI / Markdown…**, or drop `.md`, `.markdown`, or `.mdown` files. Saved or exported output from GPT, Claude, Gemini, Antigravity, Codex, and other agents becomes editable pages. Markdown checkboxes become task items; fenced examples remain text. Import reads the local files selected by the user.
-- Export a portable `.wnote` notebook or plain text, print, and save as PDF.
-- Open **Settings** from the sidebar or notebook menu for theme, accent, startup, shortcut, confirmation, and storage preferences. Save and Cancel stay visible while scrolling.
+The **Lock** button prevents accidental movement and resizing. The widget stays compact and cannot be maximized. Closing it hides it to the tray; **menu → Exit** saves and exits.
 
-Notebooks are stored in `Documents\WidgetNotes` by default. Preferences are stored in `%LOCALAPPDATA%\WidgetNotes\settings.json`. The installer and uninstaller keep notebook data. The adjacent `settings.runtime.json` records the running version, renderer, and application mode for troubleshooting.
+The glass integration uses the MIT-licensed [WPF UI FluentWindow](https://github.com/lepoco/wpfui) with the Windows desktop Acrylic backdrop. WPF UI licenses and notices are included in the installer and installed program folder. Windows can simplify transparency according to system performance and accessibility settings.
 
-Keyboard shortcuts: Ctrl+N new page, Ctrl+F search, Ctrl+S save, Ctrl+Z undo, Ctrl+PageUp/PageDown navigate. The configurable global show/hide shortcut defaults to Ctrl+Alt+N.
+## Notes and pages
+
+- Add lists, notes, images, and attachments from the widget toolbar. Cards grow with their contents; the widget has a single vertical scrolling area.
+- Navigate pages with the footer arrows. Use **menu → Find page…** or Ctrl+F to search notes in a compact dialog.
+- Open **menu → Notebooks…** to switch or create notebooks.
+- Use **Import Markdown** or drop `.md`, `.markdown`, or `.mdown` files. Saved/exported output from GPT, Claude, Gemini, Antigravity, Codex, and other agents becomes editable pages. Markdown checkboxes become tasks; fenced examples remain text. Import reads selected local files.
+- Export portable `.wnote` notebooks or text, print, and save as PDF from the notebook menu.
+- **Settings** controls theme, accent, launch at sign-in, shortcut, confirmations, and notebook location. Save and Cancel stay visible while scrolling.
+
+Notebooks default to `Documents\WidgetNotes`. Preferences are in `%LOCALAPPDATA%\WidgetNotes\settings.json`; `settings.runtime.json` records the running version and renderer for troubleshooting. Program updates retain notebook data.
+
+Keyboard shortcuts: Ctrl+N new page, Ctrl+F find a page, Ctrl+S save, Ctrl+Z undo, Ctrl+PageUp/PageDown navigate. The default global show/hide shortcut is Ctrl+Alt+N. If Windows reports that it is already assigned, startup uses Ctrl+Alt+Shift+N and saves that choice in Settings.
 
 ## Build and diagnostics
 
-Requires Windows x64 and the .NET 10 SDK. Run `./build.ps1`; the script also recognizes a local SDK in `.tools/dotnet-sdk`. It regenerates the multi-size app icon and publishes a self-contained EXE and ZIP under `dist`. The runtime uses .NET and Windows APIs, without third-party application packages.
+Requires Windows x64 and the .NET 10 SDK. Run `./build.ps1`; a local SDK in `.tools/dotnet-sdk` is also recognized. The script regenerates the multi-size icon and publishes a self-contained EXE and ZIP under `dist`.
 
-The app supports isolated diagnostics using `--test-root=...` with `--self-test`, `--ui-test`, `--application-test`, or `--benchmark`. UI diagnostics render both themes, the actual notebook menu, settings dialog, and dropdown. Application diagnostics verify top-level windows and compositor behavior during move/resize. Use PowerShell `Start-Process -Wait -PassThru` when running the GUI executable from scripts, and inspect the resulting diagnostic report.
+Use `--test-root=...` with `--self-test`, `--ui-test`, `--application-test`, or `--benchmark` to run isolated diagnostics. UI checks exercise task controls, Markdown import, automatic card height, page search, menus, settings, and dropdowns. Widget checks cover taskbar suppression, absence of application/canvas controls, gesture pause/resume, and position locking. Run GUI diagnostics with PowerShell `Start-Process -Wait -PassThru` and inspect their text reports.
 
-`--backdrop-test --test-root=...` is an optional display-level diagnostic that compares a test surface behind the window. It refuses to measure another application's pixels when the test window is covered.
+The GitHub Actions workflow builds Windows x64, runs diagnostics, uploads the ZIP, and publishes a release when a `v*` tag is pushed. No Git remote is configured in this workspace, so local tags have not published a hosted release.
 
-## GitHub
-
-`.github/workflows/windows-release.yml` builds Windows x64, runs diagnostics, and uploads the installer ZIP. Pushing a `v*` tag publishes a GitHub Release. This workspace has no Git remote configured; local tags do not publish a hosted release.
-
-The application is unsigned. Windows may display an unknown-publisher prompt until a signing certificate is provided.
+The application is unsigned; Windows may display an unknown-publisher prompt.

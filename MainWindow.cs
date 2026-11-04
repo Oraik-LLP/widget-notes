@@ -15,7 +15,7 @@ using Microsoft.Win32;
 
 namespace WidgetNotes;
 
-public sealed class MainWindow : Window
+public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
 {
     NotebookStore store;
     readonly Preferences pref;
@@ -28,39 +28,34 @@ public sealed class MainWindow : Window
     readonly Grid windowRoot = new();
     readonly Border shellFrame = new() { CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(1) };
     readonly Grid content = new();
-    readonly StackPanel sidebar = new();
-    readonly Canvas canvas = new() { Background = Brushes.Transparent, Width = 2000, Height = 1600, ClipToBounds = true };
     readonly StackPanel widget = new();
-    readonly ScaleTransform zoom = new(1, 1);
     readonly TextBox title = new() { FontSize = 26, FontWeight = FontWeights.SemiBold, BorderThickness = new Thickness(0), Padding = new Thickness(0, 6, 0, 6), Background = Brushes.Transparent };
-    readonly TextBox search = new() { Margin = new Thickness(8), MinHeight = 30, ToolTip = "Search all page titles and text" };
     readonly TextBlock notebookTitle = new() { FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
     readonly Border headerGlass;
-    readonly Border sidebarGlass;
     readonly Border footerGlass;
-    readonly Button expandButton;
     readonly Button pinButton;
-    readonly Button maximizeButton;
-    bool changingMode;
     readonly SemaphoreSlim flushGate = new(1, 1);
-    bool expanded, rendering, dirty, exiting, busy;
+    bool rendering, dirty, exiting, busy, materialPaused;
     long revision;
     Brush surface = Brushes.White, foreground = Brushes.Black, muted = Brushes.Gray, accent = Brushes.Blue, border = Brushes.LightGray;
     Brush glassPanel = Brushes.White, glassRaised = Brushes.White, inputSurface = Brushes.White;
     IntPtr handle;
+    bool nativeHooked;
     bool shortcutRegistered;
+    int lastShortcutError;
     string? appliedTheme;
     bool nativeBackdrop;
     ContextMenu? lastMenu;
     public MainWindow(NotebookStore initial, Preferences settings)
     {
-        store = initial; pref = settings; pref.Pinned = false;
+        store = initial; pref = settings; pref.Pinned = false; pref.CompactMode = true;
+        NativeGlass.EnsureResources(IsDark);
         Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/WidgetNotes;component/Themes/Controls.xaml") });
         page = store.Book.Pages.FirstOrDefault(p => p.Id == pref.LastPage) ?? store.Book.Pages[0];
         Title = "WidgetNotes"; Icon = AppArtwork.WindowIcon; FontFamily = new FontFamily("Segoe UI Variable, Segoe UI"); FontSize = 13;
-        MinWidth = 360; MinHeight = 400; Width = Math.Clamp(pref.Width, 340, 900); Height = Math.Clamp(pref.Height, 360, 1000);
+        MinWidth = 360; MinHeight = 400; MaxWidth = 900; MaxHeight = 1000; Width = Math.Clamp(pref.Width, 360, 900); Height = Math.Clamp(pref.Height, 400, 1000);
         Left = double.IsFinite(pref.Left) ? pref.Left : 60; Top = double.IsFinite(pref.Top) ? pref.Top : 60;
-        ClampPosition(); Topmost = false; ShowInTaskbar = true; ShowActivated = true; NativeGlass.Configure(this);
+        ClampPosition(); Topmost = false; ShowInTaskbar = false; ShowActivated = !App.Arguments.Contains("--startup"); NativeGlass.Configure(this);
         Content = windowRoot; shellFrame.Child = root; windowRoot.Children.Add(shellFrame); root.Margin = new Thickness(3);
         AllowDrop = true; root.SnapsToDevicePixels = true; root.UseLayoutRounding = true;
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -68,14 +63,11 @@ public sealed class MainWindow : Window
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         var header = new DockPanel { LastChildFill = true };
         var actions = new StackPanel { Orientation = Orientation.Horizontal };
-        pinButton = Btn("Lock", () => { pref.LockWidget = !pref.LockWidget; pinButton!.Content = pref.LockWidget ? "Unlock" : "Lock"; ResizeMode = pref.LockWidget && !expanded ? ResizeMode.NoResize : ResizeMode.CanResize; SavePreferences(); }, "Lock or unlock the compact window position");
+        pinButton = Btn("Lock", () => { pref.LockWidget = !pref.LockWidget; pinButton!.Content = pref.LockWidget ? "Unlock" : "Lock"; ResizeMode = pref.LockWidget ? ResizeMode.NoResize : ResizeMode.CanResize; SavePreferences(); }, "Lock or unlock the compact window position");
         pinButton.Content = pref.LockWidget ? "Unlock" : "Lock";
         if (pref.LockWidget) ResizeMode = ResizeMode.NoResize;
-        expandButton = Btn("Expand ↗", () => Expand(!expanded), "Expand notebook / return to widget");
-        actions.Children.Add(expandButton); actions.Children.Add(Btn("⋯", ShowMenu, "Notebook menu and settings"));
-        actions.Children.Add(ChromeButton("−", () => WindowState = WindowState.Minimized, "Minimize"));
-        maximizeButton = ChromeButton("□", ToggleMaximize, "Maximize or restore"); actions.Children.Add(maximizeButton);
-        actions.Children.Add(ChromeButton("×", async () => await ExitApp(), "Close WidgetNotes"));
+        actions.Children.Add(pinButton); actions.Children.Add(Btn("⋯", ShowMenu, "Notebook menu and settings"));
+        actions.Children.Add(ChromeButton("×", async () => await HideWidget(), "Hide widget"));
         System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(actions, true);
         DockPanel.SetDock(actions, Dock.Right); header.Children.Add(actions);
         var brand = new DockPanel { VerticalAlignment = VerticalAlignment.Center };
@@ -86,10 +78,8 @@ public sealed class MainWindow : Window
         headerGlass = new Border { Margin = new Thickness(14, 7, 10, 8), Padding = new Thickness(2), CornerRadius = new CornerRadius(14), Child = header };
         root.Children.Add(headerGlass);
         Grid.SetRow(content, 1); root.Children.Add(content);
-        content.ColumnDefinitions.Add(new() { Width = new GridLength(0) }); content.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        sidebarGlass = new Border { CornerRadius = new CornerRadius(18), BorderThickness = new Thickness(1), Margin = new Thickness(11, 0, 5, 0), Padding = new Thickness(8), Child = sidebar };
-        Grid.SetColumn(sidebarGlass, 0); content.Children.Add(sidebarGlass);
-        var pageArea = new Grid { Margin = new Thickness(11, 0, 11, 0) }; Grid.SetColumn(pageArea, 1); content.Children.Add(pageArea);
+        content.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        var pageArea = new Grid { Margin = new Thickness(11, 0, 11, 0) }; content.Children.Add(pageArea);
         pageArea.RowDefinitions.Add(new() { Height = GridLength.Auto }); pageArea.RowDefinitions.Add(new() { Height = GridLength.Auto }); pageArea.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         title.TextChanged += (_, _) => { if (rendering) return; page.Title = title.Text; Changed(); UpdatePageLabels(); };
         title.GotKeyboardFocus += (_, _) => Remember(); pageArea.Children.Add(title);
@@ -102,9 +92,6 @@ public sealed class MainWindow : Window
         Grid.SetRow(tools, 1); pageArea.Children.Add(tools);
         var scroller = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = widget };
         scroller.Name = "WidgetScroll"; Grid.SetRow(scroller, 2); pageArea.Children.Add(scroller);
-        canvas.LayoutTransform = zoom;
-        var canvasScroll = new ScrollViewer { Content = canvas, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Visibility = Visibility.Collapsed, Name = "CanvasScroll" };
-        Grid.SetRow(canvasScroll, 2); pageArea.Children.Add(canvasScroll);
         var footer = new Grid();
         footer.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var nav = new StackPanel { Orientation = Orientation.Horizontal };
@@ -116,8 +103,6 @@ public sealed class MainWindow : Window
         footerGlass = new Border { Margin = new Thickness(11, 7, 11, 10), Padding = new Thickness(8, 3, 8, 3), CornerRadius = new CornerRadius(15), BorderThickness = new Thickness(1), Child = footer };
         Grid.SetRow(footerGlass, 2); root.Children.Add(footerGlass);
         autosave.Tick += async (_, _) => { autosave.Stop(); await Flush(); };
-        search.TextChanged += (_, _) => RenderSidebar();
-        AutomationProperties.SetName(search, "Search pages");
         AutomationProperties.SetName(title, "Page title");
         PreviewKeyDown += OnKeys;
         Drop += async (_, e) =>
@@ -132,37 +117,43 @@ public sealed class MainWindow : Window
         };
         DragOver += (_, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } };
         Closing += OnClosing;
-        SourceInitialized += (_, _) => { handle = new WindowInteropHelper(this).Handle; HwndSource.FromHwnd(handle)?.AddHook(WndProc); ApplyTheme(); TryShortcut(pref.Shortcut, false); };
-        Loaded += (_, _) => { if (App.TestRoot == null) Expand(!pref.CompactMode); nativeBackdrop = NativeGlass.Apply(this, IsDark); WriteRuntimeReport(); };
+        SourceInitialized += (_, _) => { InitializeNativeWindow(); ApplyTheme(); };
+        Loaded += (_, _) => { InitializeNativeWindow(); nativeBackdrop = NativeGlass.Apply(this, IsDark); WriteRuntimeReport(); };
         Closed += (_, _) => autosave.Stop();
         Activated += (_, _) => ApplyTheme();
-        LocationChanged += (_, _) => { if (IsVisible && !changingMode) CaptureWindowBounds(); };
-        SizeChanged += (_, _) => { if (IsVisible && !changingMode) CaptureWindowBounds(); };
-        StateChanged += (_, _) => { maximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "□"; };
-        ContentRendered += async (_, _) => { if (App.Arguments.Contains("--backdrop-test") && App.TestRoot != null) await LiveBackdropTest(); else if (App.Arguments.Contains("--desktop-test") || App.Arguments.Contains("--application-test")) await ApplicationTest(); else if (App.Arguments.Contains("--ui-test") || App.Arguments.Contains("--benchmark")) await RunUiVerification(); };
-        ApplyTheme(); Render(); SavePreferences(); status.Text = "Saved locally";
+        LocationChanged += (_, _) => { if (IsVisible) CaptureWindowBounds(); };
+        SizeChanged += (_, _) => { if (IsVisible) CaptureWindowBounds(); };
+        StateChanged += (_, _) => { if (WindowState == WindowState.Maximized) WindowState = WindowState.Normal; };
+        ContentRendered += async (_, _) => { if (App.Arguments.Contains("--desktop-test") || App.Arguments.Contains("--application-test")) await ApplicationTest(); else if (App.Arguments.Contains("--ui-test") || App.Arguments.Contains("--benchmark")) await RunUiVerification(); };
+        ApplyTheme(); Render(); SavePreferences(); status.Text = "Saved locally"; InitializeNativeWindow();
 
-        void SyncMode() { scroller.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible; canvasScroll.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed; attach.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed; }
-        ModeChanged += SyncMode; SyncMode();
     }
-    event Action? ModeChanged;
     Button Btn(string label, Action action, string? help = null)
     {
         var b = new Button { Content = label, Margin = new Thickness(3), Padding = new Thickness(9, 6, 9, 6), MinHeight = 32, ToolTip = help ?? label, Cursor = Cursors.Hand };
         if (Resources[typeof(Button)] is Style style) b.Style = style;
         AutomationProperties.SetName(b, help ?? label); b.Click += (_, _) => action(); return b;
     }
+    void InitializeNativeWindow()
+    {
+        IntPtr actual = new WindowInteropHelper(this).Handle;
+        if (actual == IntPtr.Zero || nativeHooked && handle == actual) return;
+        if (nativeHooked && handle != IntPtr.Zero) HwndSource.FromHwnd(handle)?.RemoveHook(WndProc);
+        handle = actual;
+        if (HwndSource.FromHwnd(handle) is not { } source) return;
+        source.AddHook(WndProc); nativeHooked = true; TryShortcut(pref.Shortcut, false);
+    }
     bool IsDark => pref.Theme == "Dark" || pref.Theme == "System" && Desktop.Dark;
     Button ChromeButton(string label, Action action, string help)
     {
         var button = Btn(label, action, help); button.Style = (Style)Resources["WindowButton"]; return button;
     }
-    void ToggleMaximize() => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
     void ApplyTheme()
     {
+        if (materialPaused) return;
         bool dark = IsDark;
         string key = $"{pref.Theme}:{dark}:{pref.Accent}:{Desktop.Accent}:{SystemParameters.HighContrast}";
-        if (appliedTheme == key && NativeGlass.AcceptedAccentState(this) >= 0) return;
+        if (appliedTheme == key && handle != IntPtr.Zero && NativeGlass.Backdrop(this) == 3) return;
         nativeBackdrop = NativeGlass.Apply(this, dark);
         if (appliedTheme == key) return;
         appliedTheme = key;
@@ -182,53 +173,29 @@ public sealed class MainWindow : Window
         Resources["ScrollBrush"] = B(dark ? "#648EA3BD" : "#60768DA5");
         windowRoot.Background = surface; root.Background = Brushes.Transparent; shellFrame.BorderBrush = border;
         Foreground = foreground; headerGlass.Background = Brushes.Transparent;
-        sidebarGlass.Background = glassPanel; sidebarGlass.BorderBrush = border;
         footerGlass.Background = Brushes.Transparent; footerGlass.BorderBrush = Brushes.Transparent;
         status.Foreground = muted; counter.Foreground = muted; notebookTitle.Foreground = foreground;
-        title.Foreground = foreground; search.Background = inputSurface; search.Foreground = foreground;
+        title.Foreground = foreground;
         if (IsLoaded) Render();
     }
     void Render()
     {
-        rendering = true; title.Text = page.Title; notebookTitle.Text = "WidgetNotes  ·  " + store.Book.Title; notebookTitle.TextTrimming = TextTrimming.CharacterEllipsis;
-        widget.Children.Clear(); canvas.Children.Clear();
-        if (expanded)
+        rendering = true; title.Text = page.Title; notebookTitle.Text = "WidgetNotes  ·  " + store.Book.Title;
+        notebookTitle.TextTrimming = TextTrimming.CharacterEllipsis; widget.Children.Clear();
+        foreach (var b in Editing.ReadingOrder(page))
         {
-            foreach (var b in page.Blocks) canvas.Children.Add(CanvasCard(b));
-            canvas.Width = Math.Max(2000, page.Blocks.Select(b => b.X + b.Width + 100).DefaultIfEmpty(0).Max()); canvas.Height = Math.Max(1600, page.Blocks.Select(b => b.Y + b.Height + 100).DefaultIfEmpty(0).Max());
+            var section = new StackPanel();
+            var heading = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+            var options = Btn("⋯", () => BlockMenu(b, false), "Block options"); options.Background = Brushes.Transparent;
+            DockPanel.SetDock(options, Dock.Right); heading.Children.Add(options);
+            string kind = b.Kind switch { "checklist" => "CHECKLIST", "image" => "IMAGE", "file" => "ATTACHMENT", _ => "NOTE" };
+            string count = b.Kind == "checklist" ? $"  {b.Items.Count(t => t.Done)} of {b.Items.Count} done" : "";
+            heading.Children.Add(new TextBlock { Text = kind + count, FontSize = 10, FontWeight = FontWeights.SemiBold, Foreground = muted, VerticalAlignment = VerticalAlignment.Center });
+            section.Children.Add(heading); section.Children.Add(BlockContent(b));
+            widget.Children.Add(new Border { Background = glassPanel, BorderBrush = border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Padding = new Thickness(12), Margin = new Thickness(0, 3, 0, 10), Child = section });
         }
-        else
-        {
-            foreach (var b in Editing.ReadingOrder(page).Where(b => b.Kind is "text" or "checklist"))
-            {
-                var section = new StackPanel();
-                var line = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 8) };
-                var opts = Btn("···", () => BlockMenu(b, false), "Block options");
-                opts.MinWidth = 32; opts.MinHeight = 28; opts.Padding = new Thickness(5, 2, 5, 2); opts.Background = Brushes.Transparent;
-                DockPanel.SetDock(opts, Dock.Right); line.Children.Add(opts);
-                string label = b.Kind == "checklist" ? "CHECKLIST" : "NOTE";
-                string count = b.Kind == "checklist" ? $"{b.Items.Count(t => t.Done)} of {b.Items.Count} done" : "";
-                var heading = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-                var badge = new Border { Background = inputSurface, CornerRadius = new CornerRadius(7), Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 8, 0) };
-                badge.Child = new TextBlock { Text = label, FontSize = 9, FontWeight = FontWeights.Bold, Foreground = accent, VerticalAlignment = VerticalAlignment.Center };
-                heading.Children.Add(badge);
-                if (count.Length > 0) heading.Children.Add(new TextBlock { Text = count, FontSize = 10, Foreground = muted, VerticalAlignment = VerticalAlignment.Center });
-                line.Children.Add(heading);
-                section.Children.Add(line);
-                section.Children.Add(BlockContent(b));
-                widget.Children.Add(new Border { Background = glassPanel, BorderBrush = border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(15), Padding = new Thickness(12, 10, 12, 11), Margin = new Thickness(0, 3, 0, 9), Child = section });
-            }
-            int attachments = page.Blocks.Count(b => b.Kind is "image" or "file");
-            if (attachments > 0) widget.Children.Add(Btn($"{attachments} attachment{(attachments == 1 ? "" : "s")} · Open workspace ↗", () => Expand(true)));
-            if (page.Blocks.Count == 0)
-            {
-                var empty = new StackPanel { Margin = new Thickness(5, 8, 5, 8) };
-                empty.Children.Add(new TextBlock { Text = "A little room to think", FontSize = 17, FontWeight = FontWeights.SemiBold, Foreground = foreground, Margin = new Thickness(0, 0, 0, 5) });
-                empty.Children.Add(new TextBlock { Text = "Add a list or a note to get started.", Foreground = muted, TextWrapping = TextWrapping.Wrap });
-                widget.Children.Add(new Border { Background = glassPanel, BorderBrush = border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(15), Padding = new Thickness(15), Margin = new Thickness(0, 3, 0, 9), Child = empty });
-            }
-        }
-        UpdatePageLabels(); RenderSidebar(); rendering = false;
+        if (page.Blocks.Count == 0) widget.Children.Add(new TextBlock { Text = "Add a list, note, or image to get started.", Foreground = muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8, 16, 8, 16) });
+        UpdatePageLabels(); rendering = false;
     }
     void UpdatePageLabels() { counter.Text = $" {store.Book.Pages.IndexOf(page) + 1} / {store.Book.Pages.Count} "; }
     FrameworkElement BlockContent(Block b)
@@ -256,7 +223,7 @@ public sealed class MainWindow : Window
         }
         if (b.Kind == "image")
         {
-            var image = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, ToolTip = b.FileName, Margin = new Thickness(4) };
+            var image = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, MaxHeight = 380, ToolTip = b.FileName, Margin = new Thickness(4) };
             var hint = new TextBlock { Text = "Loading image…", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = muted, TextWrapping = TextWrapping.Wrap };
             var imagePanel = new Grid(); imagePanel.Children.Add(image); imagePanel.Children.Add(hint);
             _ = LoadImage(image, Path.Combine(store.Folder, b.Media!), Math.Clamp((int)(b.Width * VisualTreeHelper.GetDpi(this).DpiScaleX), 200, 1600), hint);
@@ -311,24 +278,6 @@ public sealed class MainWindow : Window
     {
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++) { var child = VisualTreeHelper.GetChild(parent, i); if (child is T t) yield return t; foreach (var c in Descendants<T>(child)) yield return c; }
     }
-    FrameworkElement CanvasCard(Block b)
-    {
-        var card = new Border { Width = b.Width, Height = b.Height, Background = glassPanel, BorderBrush = border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(2) };
-        Canvas.SetLeft(card, b.X); Canvas.SetTop(card, b.Y);
-        var grid = new Grid(); grid.RowDefinitions.Add(new() { Height = new GridLength(32) }); grid.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); card.Child = grid;
-        var header = new Grid { Background = Brushes.Transparent }; header.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        var grip = new Thumb { Cursor = Cursors.SizeAll, Opacity = .01, Background = Brushes.Transparent };
-        header.Children.Add(new TextBlock { Text = "⠿  " + b.Kind.ToUpperInvariant(), FontSize = 10, Foreground = muted, Margin = new Thickness(10, 8, 0, 0), IsHitTestVisible = false }); header.Children.Add(grip);
-        grip.DragStarted += (_, _) => Remember(); grip.DragDelta += (_, e) => { b.X = Math.Clamp(b.X + e.HorizontalChange, 0, 100000); b.Y = Math.Clamp(b.Y + e.VerticalChange, 0, 100000); Canvas.SetLeft(card, b.X); Canvas.SetTop(card, b.Y); Changed(); };
-        grip.DragCompleted += (_, _) => GrowCanvas();
-        var menu = Btn("⋯", () => BlockMenu(b, true), "Block options"); Grid.SetColumn(menu, 1); header.Children.Add(menu); grid.Children.Add(header);
-        var body = new ScrollViewer { Content = BlockContent(b), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(8, 0, 8, 10) }; Grid.SetRow(body, 1); grid.Children.Add(body);
-        var resize = new Thumb { Width = 15, Height = 15, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Cursor = Cursors.SizeNWSE, Opacity = .5, ToolTip = "Resize block" }; Grid.SetRow(resize, 1); grid.Children.Add(resize);
-        AutomationProperties.SetName(grip, "Move " + b.Kind + " block"); AutomationProperties.SetName(resize, "Resize " + b.Kind + " block");
-        resize.DragStarted += (_, _) => Remember(); resize.DragDelta += (_, e) => { b.Width = Math.Clamp(b.Width + e.HorizontalChange, 180, 10000); b.Height = Math.Clamp(b.Height + e.VerticalChange, 120, 10000); card.Width = b.Width; card.Height = b.Height; Changed(); }; resize.DragCompleted += (_, _) => { GrowCanvas(); if (b.Kind == "image" && Descendants<System.Windows.Controls.Image>(card).FirstOrDefault() is {} image) _ = LoadImage(image, Path.Combine(store.Folder, b.Media!), Math.Clamp((int)(b.Width * VisualTreeHelper.GetDpi(this).DpiScaleX), 200, 1600)); };
-        return card;
-    }
-    void GrowCanvas() { canvas.Width = Math.Max(canvas.Width, page.Blocks.Select(b => b.X + b.Width + 100).DefaultIfEmpty(2000).Max()); canvas.Height = Math.Max(canvas.Height, page.Blocks.Select(b => b.Y + b.Height + 100).DefaultIfEmpty(1600).Max()); }
     void BlockMenu(Block b, bool canvasMode)
     {
         var menu = CreateMenu();
@@ -380,37 +329,18 @@ public sealed class MainWindow : Window
             transform.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(150)) { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } });
         }
     }
-    public void Expand(bool value)
-    {
-        if (expanded == value) { Show(); Activate(); return; }
-        CaptureWindowBounds(); changingMode = true; WindowState = WindowState.Normal; expanded = value;
-        MinWidth = expanded ? 900 : 360; MinHeight = expanded ? 600 : 400;
-        Width = expanded ? Math.Clamp(pref.WorkspaceWidth, 900, 1800) : Math.Clamp(pref.Width, 360, 900);
-        Height = expanded ? Math.Clamp(pref.WorkspaceHeight, 600, 1200) : Math.Clamp(pref.Height, 400, 1000);
-        Left = expanded ? pref.WorkspaceLeft : pref.Left; Top = expanded ? pref.WorkspaceTop : pref.Top; ClampPosition();
-        ResizeMode = !expanded && pref.LockWidget ? ResizeMode.NoResize : ResizeMode.CanResize;
-        ShowInTaskbar = true; Topmost = false; changingMode = false;
-        content.ColumnDefinitions[0].Width = new GridLength(expanded ? 224 : 0);
-        sidebarGlass.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
-        sidebar.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
-        expandButton.Content = expanded ? "Compact" : "Workspace"; pinButton.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
-        maximizeButton.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed; title.FontSize = expanded ? 28 : 24;
-        pref.CompactMode = !expanded; ModeChanged?.Invoke(); Render(); nativeBackdrop = NativeGlass.Apply(this, IsDark);
-        Show(); Activate(); SavePreferences(); WriteRuntimeReport();
-    }
     void CaptureWindowBounds()
     {
-        if (WindowState != WindowState.Normal || changingMode) return;
-        if (expanded) { pref.WorkspaceLeft = Left; pref.WorkspaceTop = Top; pref.WorkspaceWidth = Width; pref.WorkspaceHeight = Height; }
-        else { pref.Left = Left; pref.Top = Top; pref.Width = Width; pref.Height = Height; }
+        if (WindowState != WindowState.Normal) return;
+        pref.Left = Left; pref.Top = Top; pref.Width = Width; pref.Height = Height;
     }
     void WriteRuntimeReport()
     {
         try
         {
-            var report = new { Version = typeof(App).Assembly.GetName().Version?.ToString(), Path = Environment.ProcessPath,
-                Renderer = "Windows compositor acrylic", AccentState = NativeGlass.AcceptedAccentState(this), NativeBackdrop = nativeBackdrop,
-                TopLevel = NativeGlass.IsTopLevel(this), Taskbar = ShowInTaskbar, Mode = expanded ? "Workspace" : "Compact" };
+            var report = new { Version = typeof(App).Assembly.GetName().Version?.ToString(), ProcessId = Environment.ProcessId, Path = Environment.ProcessPath,
+                Renderer = "WPF UI Desktop Acrylic", BackdropType = NativeGlass.Backdrop(this), NativeBackdrop = nativeBackdrop,
+                TopLevel = NativeGlass.IsTopLevel(this), Taskbar = ShowInTaskbar, Mode = "Widget", NativeHooked = nativeHooked, NativeHandle = handle.ToInt64(), MaterialPaused = materialPaused, ShortcutRegistered = shortcutRegistered, Shortcut = pref.Shortcut, LastShortcutError = lastShortcutError };
             File.WriteAllText(Path.ChangeExtension(App.ActualSettingsFile, ".runtime.json"), Json.Write(report));
         }
         catch { /* Runtime diagnostics must never prevent opening a notebook. */ }
@@ -423,25 +353,6 @@ public sealed class MainWindow : Window
         double l = screen.Left / scale, t = screen.Top / scale, w = screen.Width / scale, h = screen.Height / scale;
         Width = Math.Min(Width, w); Height = Math.Min(Height, h); Left = Math.Clamp(Left, l, Math.Max(l, l + w - Width)); Top = Math.Clamp(Top, t, Math.Max(t, t + h - Height));
     }
-    void RenderSidebar()
-    {
-        if (!expanded) return;
-        bool focus = search.IsKeyboardFocusWithin; int caret = search.CaretIndex;
-        sidebar.Children.Clear(); sidebar.Children.Add(new TextBlock { Text = "SEARCH PAGES", FontSize = 10, Foreground = muted, Margin = new Thickness(8, 8, 8, 0) }); sidebar.Children.Add(search);
-        var books = Btn("Notebooks ▾", ShowNotebookMenu, "Switch or create notebooks"); sidebar.Children.Add(books);
-        var scroll = new ScrollViewer { MaxHeight = Math.Max(200, ActualHeight - 240), VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; var items = new StackPanel(); scroll.Content = items; sidebar.Children.Add(scroll);
-        string term = search.Text.Trim();
-        foreach (var p in store.Book.Pages.Where(p => term.Length == 0 || (p.Title + " " + string.Join(" ", p.Blocks.Select(b => b.Text + " " + b.FileName + " " + string.Join(" ", b.Items.Select(t => t.Text))))).Contains(term, StringComparison.OrdinalIgnoreCase)))
-        {
-            var button = Btn((p == page ? "• " : "") + p.Title, () => { page = p; Render(); SavePreferences(); }, p.Title); button.HorizontalContentAlignment = HorizontalAlignment.Left; if (p == page) button.BorderBrush = accent; items.Children.Add(button);
-        }
-        var controls = new WrapPanel(); controls.Children.Add(Btn("↑", () => MovePage(-1), "Move page up")); controls.Children.Add(Btn("↓", () => MovePage(1), "Move page down")); controls.Children.Add(Btn("Delete", DeletePage, "Delete current page")); sidebar.Children.Add(controls);
-        var z = new WrapPanel(); z.Children.Add(Btn("−", () => SetZoom(zoom.ScaleX - .1), "Zoom out")); z.Children.Add(Btn($"{zoom.ScaleX:P0}", () => SetZoom(1), "Reset zoom")); z.Children.Add(Btn("+", () => SetZoom(zoom.ScaleX + .1), "Zoom in")); sidebar.Children.Add(z);
-        sidebar.Children.Add(Btn("Rename notebook", RenameNotebook));
-        sidebar.Children.Add(Btn("Settings", Settings));
-        if (focus) { search.Focus(); search.CaretIndex = caret; }
-    }
-    void SetZoom(double value) { zoom.ScaleX = zoom.ScaleY = Math.Clamp(value, .4, 2); RenderSidebar(); }
     void MovePage(int delta) { int i = store.Book.Pages.IndexOf(page), next = i + delta; if (next < 0 || next >= store.Book.Pages.Count) return; Remember(); store.Book.Pages.RemoveAt(i); store.Book.Pages.Insert(next, page); Changed(); Render(); }
     void DeletePage() { if (!Confirm("Delete this page and all of its blocks?")) return; Remember(); store.Book.Pages.Remove(page); if (store.Book.Pages.Count == 0) store.Book.Pages.Add(new()); page = store.Book.Pages[0]; Changed(); Render(); }
     void RenameNotebook() { string? value = Ask("Rename notebook", "Notebook name", store.Book.Title); if (!string.IsNullOrWhiteSpace(value)) { Remember(); store.Book.Title = value; Changed(); Render(); } }
@@ -482,17 +393,17 @@ public sealed class MainWindow : Window
     }
     public void ToggleVisibility()
     {
-        if (IsVisible && (!expanded || IsActive)) { SavePreferences(); Hide(); }
+        if (IsVisible && IsActive) { SavePreferences(); Hide(); }
         else { Reveal(); }
     }
     public void Reveal() { Show(); if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; ClampPosition(); Activate(); }
     Window ModalOwner => this;
-    async void OnClosing(object? sender, CancelEventArgs e)
+    async Task HideWidget() { if (await Flush()) Hide(); }
+    void OnClosing(object? sender, CancelEventArgs e)
     {
         if (exiting) return;
         e.Cancel = true;
-        if (await Flush()) { exiting = true; Close(); System.Windows.Application.Current.Shutdown(); }
-        else MessageBox.Show(this, "Your changes could not be saved. Use Retry or export a portable recovery copy.", "Save failed");
+        Dispatcher.BeginInvoke(new Action(async () => { if (!exiting && !Dispatcher.HasShutdownStarted) await HideWidget(); }), DispatcherPriority.Background);
     }
     public async Task ExitApp() { if (!await Flush()) { MessageBox.Show(ModalOwner, "The notebook could not be saved. Your edits remain open. Use Retry or export a recovery copy before exiting.", "Save required"); return; } exiting = true; if (shortcutRegistered) Desktop.UnregisterHotKey(handle, 1); Close(); System.Windows.Application.Current.Shutdown(); }
     public bool SaveForSessionEnd()
@@ -506,8 +417,10 @@ public sealed class MainWindow : Window
     IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (msg == 0x312 && wParam.ToInt32() == 1) { ToggleVisibility(); handled = true; }
-        if (msg == 0x231) NativeGlass.ApplyMode(this, IsDark, 1);
-        if (msg == 0x232) NativeGlass.Apply(this, IsDark);
+        if (msg == 0x112 && (wParam.ToInt64() & 0xfff0) == 0xf030) { handled = true; return IntPtr.Zero; }
+        if (msg == 0x112 && pref.LockWidget && (wParam.ToInt64() & 0xfff0) is 0xf010 or 0xf000) { handled = true; return IntPtr.Zero; }
+        if (msg == 0x231) { materialPaused = true; NativeGlass.Pause(this, IsDark); WriteRuntimeReport(); }
+        if (msg == 0x232) { materialPaused = false; nativeBackdrop = NativeGlass.Apply(this, IsDark); SavePreferences(); WriteRuntimeReport(); }
         if (msg == 0x7e) Dispatcher.BeginInvoke(ClampPosition);
         if (msg == 0x31e) Dispatcher.BeginInvoke(() => nativeBackdrop = NativeGlass.Apply(this, IsDark));
         if (msg is 0x31a or 0x1a) Dispatcher.BeginInvoke(ApplyTheme);
@@ -522,8 +435,16 @@ public sealed class MainWindow : Window
             shortcutRegistered = Desktop.RegisterHotKey(handle, 1, parsed.Mods, parsed.Key);
             if (!shortcutRegistered)
             {
+                lastShortcutError = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                if (!warn && lastShortcutError == 1409 && value.Equals("Ctrl+Alt+N", StringComparison.OrdinalIgnoreCase))
+                {
+                    const string fallback = "Ctrl+Alt+Shift+N";
+                    var alternative = Desktop.ParseShortcut(fallback);
+                    shortcutRegistered = Desktop.RegisterHotKey(handle, 1, alternative.Mods, alternative.Key);
+                    if (shortcutRegistered) { pref.Shortcut = fallback; SavePreferences(); status.Text = "Shortcut: " + fallback; status.ToolTip = "The default shortcut is already assigned on this PC."; return true; }
+                }
                 var old = Desktop.ParseShortcut(previous); shortcutRegistered = Desktop.RegisterHotKey(handle, 1, old.Mods, old.Key);
-                throw new InvalidOperationException("That shortcut is in use. Choose another combination. The tray icon is always available.");
+                throw new InvalidOperationException($"That shortcut could not be registered (Windows error {lastShortcutError}). Choose another combination. The tray icon is always available.");
             }
             pref.Shortcut = value; return true;
         }
@@ -534,10 +455,9 @@ public sealed class MainWindow : Window
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.S) { _ = Flush(); e.Handled = true; }
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Z) { if (Keyboard.FocusedElement is TextBox t && t.CanUndo) return; Undo(); e.Handled = true; }
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.N) { NewPage("checklist"); e.Handled = true; }
-        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F) { Expand(true); search.Focus(); e.Handled = true; }
+        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F) { ShowPageSearch(); e.Handled = true; }
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key is Key.PageDown or Key.PageUp) { Navigate(e.Key == Key.PageDown ? 1 : -1); e.Handled = true; }
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.V && Clipboard.ContainsImage()) { _ = PasteImage(); e.Handled = true; }
-        if (e.Key == Key.Escape && expanded) { Expand(false); e.Handled = true; }
     }
     async Task PickMedia(bool images)
     {
@@ -619,7 +539,7 @@ public sealed class MainWindow : Window
     void Menu(ItemsControl menu, string label, Action action) { var item = new MenuItem { Header = label }; item.Click += (_, _) => action(); menu.Items.Add(item); }
     void ShowMenu()
     {
-        var menu = CreateMenu(); Menu(menu, "Notebooks…", ShowNotebookMenu); Menu(menu, "Rename notebook…", RenameNotebook); Menu(menu, "New page…", ShowNewPageMenu);
+        var menu = CreateMenu(); Menu(menu, "Notebooks…", ShowNotebookMenu); Menu(menu, "Rename notebook…", RenameNotebook); Menu(menu, "New page…", ShowNewPageMenu); Menu(menu, "Find page…", () => ShowPageSearch());
         Menu(menu, "Move page earlier", () => MovePage(-1)); Menu(menu, "Move page later", () => MovePage(1)); Menu(menu, "Delete page…", DeletePage); menu.Items.Add(new Separator());
         Menu(menu, "Undo last change", Undo); Menu(menu, "Import AI / Markdown…", async () => await PickMarkdown()); Menu(menu, "Save / retry", async () => await Flush()); Menu(menu, "Export portable notebook…", ExportArchive); Menu(menu, "Open .wnote file…", async () => { var p = new OpenFileDialog { Filter = "WidgetNotes notebook|*.wnote" }; if (p.ShowDialog(ModalOwner) == true) await OpenArchive(p.FileName); });
         Menu(menu, "Export text…", ExportText); Menu(menu, "Print / Save as PDF…", Print); Menu(menu, "Open notebook folder", () => Desktop.Shell(store.Folder)); menu.Items.Add(new Separator());
@@ -636,6 +556,33 @@ public sealed class MainWindow : Window
             Menu(menu, name, async () => await OpenFolder(folder));
         }
         menu.IsOpen = true;
+    }
+    public void ShowPageSearch() => ShowPageSearch(false);
+    void ShowPageSearch(bool diagnostic)
+    {
+        if (!IsVisible) Reveal();
+        var body = new StackPanel { Margin = new Thickness(20, 8, 20, 20) };
+        var query = new TextBox { Margin = new Thickness(0, 0, 0, 12), ToolTip = "Search page titles and notes" };
+        AutomationProperties.SetName(query, "Search pages"); body.Children.Add(query);
+        var results = new StackPanel(); body.Children.Add(new ScrollViewer { Content = results, MaxHeight = 330, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        var dialog = Dialog("Find a page", body, 440, 520);
+        void Filter()
+        {
+            results.Children.Clear(); string term = query.Text.Trim();
+            foreach (var candidate in store.Book.Pages.Where(p => (p.Title + " " + string.Join(" ", p.Blocks.Select(b => b.Text + " " + string.Join(" ", b.Items.Select(t => t.Text))))).Contains(term, StringComparison.OrdinalIgnoreCase)))
+                results.Children.Add(Btn(candidate.Title, () => { page = candidate; Render(); SavePreferences(); dialog.Close(); }, candidate.Title));
+        }
+        query.TextChanged += (_, _) => Filter(); Filter();
+        dialog.ContentRendered += async (_, _) =>
+        {
+            query.Focus();
+            if (!diagnostic) return;
+            try { query.Text = "Ideas"; await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle); if (results.Children.Count != 1) throw new Exception("Page search did not filter results"); CaptureElement((FrameworkElement)dialog.Content, "page-search.png"); }
+            catch (Exception ex) { dialog.Tag = ex; }
+            finally { dialog.Close(); }
+        };
+        dialog.ShowDialog();
+        if (diagnostic && dialog.Tag is Exception failure) throw new InvalidOperationException("Page search verification failed", failure);
     }
     async Task OpenFolder(string folder) { if (busy || !await Flush()) return; try { await SwitchStore(await NotebookStore.Open(folder)); } catch (Exception ex) { MessageBox.Show(ModalOwner, ex.Message, "Could not open notebook"); } }
     public async Task OpenArchive(string file)
@@ -693,7 +640,7 @@ public sealed class MainWindow : Window
     }
     Window Dialog(string label, FrameworkElement body, double width = 430, double height = 600)
     {
-        var dialog = new Window { Title = label, Owner = this, Width = width, Height = Math.Min(height, SystemParameters.WorkArea.Height - 40), MinWidth = 320, MinHeight = 160,
+        var dialog = new Wpf.Ui.Controls.FluentWindow { Title = label, Owner = this, Width = width, Height = Math.Min(height, SystemParameters.WorkArea.Height - 40), MinWidth = 320, MinHeight = 160,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, Foreground = foreground, FontFamily = FontFamily, ShowInTaskbar = false, Resources = Resources };
         NativeGlass.Configure(dialog); dialog.ResizeMode = ResizeMode.NoResize;
         var layout = new Grid(); layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(54) }); layout.RowDefinitions.Add(new RowDefinition());
@@ -703,7 +650,7 @@ public sealed class MainWindow : Window
         header.Children.Add(new TextBlock { Text = label, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center }); layout.Children.Add(header);
         Grid.SetRow(body, 1); layout.Children.Add(body);
         dialog.Content = new Border { Background = surface, BorderBrush = border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Child = layout };
-        dialog.SourceInitialized += (_, _) => NativeGlass.Apply(dialog, IsDark);
+        dialog.Loaded += (_, _) => NativeGlass.Apply(dialog, IsDark);
         dialog.PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { dialog.Close(); e.Handled = true; } };
         return dialog;
     }
@@ -751,9 +698,9 @@ public sealed class MainWindow : Window
         var color = Choice(look, "Accent color", ["Blue", "Orange", "Windows"], pref.Accent);
         var motion = Check(look, "Reduce motion", pref.ReducedMotion, "Use shorter, quieter page transitions.");
 
-        var desktop = Group("Application & startup", "Keep your notebook close without getting in the way.");
+        var desktop = Group("Widget & startup", "Keep your notebook close without getting in the way.");
         var startup = Check(desktop, "Open WidgetNotes when I sign in", Desktop.HasStartup(), "The installer enables this by default. You can turn it off here any time.");
-        var pin = Check(desktop, "Lock compact window size", pref.LockWidget, "Keeps the optional compact window at its current size.");
+        var pin = Check(desktop, "Lock widget position", pref.LockWidget, "Prevents accidental moving or resizing.");
         desktop.Children.Add(new TextBlock { Text = "Show / hide shortcut", Foreground = foreground, Margin = new Thickness(0, 8, 0, 4) });
         var hotkey = new TextBox { Text = pref.Shortcut, Margin = new Thickness(0, 0, 0, 5) }; desktop.Children.Add(hotkey);
 
@@ -773,14 +720,14 @@ public sealed class MainWindow : Window
             try { Directory.CreateDirectory(nextRoot); Desktop.Startup(startup.IsChecked == true); }
             catch (Exception ex) { MessageBox.Show(d, ex.Message, "Settings could not be applied"); return; }
             pref.Root = nextRoot; pref.Startup = startup.IsChecked == true; pref.Theme = (string)theme.SelectedItem; pref.Accent = (string)color.SelectedItem; pref.LockWidget = pin.IsChecked == true; pref.Pinned = false; pref.ConfirmDelete = delete.IsChecked == true; pref.ConfirmComplete = complete.IsChecked == true; pref.ReducedMotion = motion.IsChecked == true;
-            Topmost = false; ResizeMode = !expanded && pref.LockWidget ? ResizeMode.NoResize : expanded ? ResizeMode.CanResize : ResizeMode.CanResize; pinButton.Content = pref.LockWidget ? "Unlock" : "Lock"; SavePreferences(); d.Close(); ApplyTheme();
+            Topmost = false; ResizeMode = pref.LockWidget ? ResizeMode.NoResize : ResizeMode.CanResize; pinButton.Content = pref.LockWidget ? "Unlock" : "Lock"; SavePreferences(); d.Close(); ApplyTheme();
         });
         save.MinHeight = 40; save.MinWidth = 140;
         var settingsActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         settingsActions.Children.Add(Btn("Cancel", () => d.Close())); settingsActions.Children.Add(save);
         var settingsFooter = new Border { Background = glassPanel, BorderBrush = border, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(16, 8, 16, 12), Child = settingsActions };
         Grid.SetRow(settingsFooter, 1); settingsLayout.Children.Add(settingsFooter);
-        panel.Children.Add(new TextBlock { Text = "WidgetNotes 1.4 · Live Windows glass\nCtrl+N new page  ·  Ctrl+F search  ·  Ctrl+S save\nCtrl+Z undo  ·  Esc compact view", Foreground = muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, FontSize = 11 });
+        panel.Children.Add(new TextBlock { Text = "WidgetNotes 1.5 · Desktop widget\nCtrl+N new page  ·  Ctrl+F search  ·  Ctrl+S save\nCtrl+Z undo  ·  Close hides to tray", Foreground = muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, FontSize = 11 });
         if (diagnostic)
         {
             d.ContentRendered += async (_, _) =>
@@ -788,6 +735,8 @@ public sealed class MainWindow : Window
                 try
                 {
                     await d.Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle);
+                    if (!SystemParameters.HighContrast && Wpf.Ui.Controls.WindowBackdrop.IsSupported(Wpf.Ui.Controls.WindowBackdropType.Acrylic) && NativeGlass.Backdrop(d) != 3) throw new Exception("Settings window did not receive its native backdrop");
+                    if (theme.Template.FindName("SelectionFrame", theme) is not Border selectionFrame || selectionFrame.ActualWidth < 200 || selectionFrame.ActualHeight < 30) throw new Exception("Settings dropdown frame collapsed");
                     CaptureElement((FrameworkElement)d.Content, IsDark ? "settings-dark.png" : "settings-light.png");
                     theme.IsDropDownOpen = true; await Task.Delay(100);
                     var popup = (Popup)theme.Template.FindName("PART_Popup", theme);
@@ -810,30 +759,33 @@ public sealed class MainWindow : Window
         await File.WriteAllTextAsync(Path.Combine(App.TestRoot, "ready.txt"), ready.ToString("F0"));
         if (App.Arguments.Contains("--ui-test")) await UiTest(ready); else await Benchmark(ready);
     }
-    async Task LiveBackdropTest()
-    {
-        await BackdropDiagnostics.Run(this, windowRoot, App.TestRoot!);
-        await ExitApp();
-    }
     async Task ApplicationTest()
     {
         if (App.TestRoot == null) return;
         var log = new List<string>();
         try
         {
-            Expand(true); await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle);
-            if (!NativeGlass.IsTopLevel(this) || !ShowInTaskbar || WindowStyle != WindowStyle.None) throw new Exception("Application chrome or taskbar state failed");
-            log.Add("PASS workspace is a top-level application with custom chrome");
-            bool handled = false; WndProc(handle, 0x231, IntPtr.Zero, IntPtr.Zero, ref handled);
-            int movingState = NativeGlass.AcceptedAccentState(this);
-            WndProc(handle, 0x232, IntPtr.Zero, IntPtr.Zero, ref handled);
-            int idleState = NativeGlass.AcceptedAccentState(this);
-            if (movingState != 3 || idleState != 4) throw new Exception($"Compositor states: moving={movingState}, idle={idleState}");
-            log.Add("PASS compositor switches to fast blur during movement and restores live acrylic afterward");
-            Expand(false);
-            if (!NativeGlass.IsTopLevel(this) || !ShowInTaskbar) throw new Exception("Compact mode must stay a top-level window");
-            log.Add("PASS compact mode preserves top-level compositor backdrop");
-            log.Add($"NativeBackdrop={nativeBackdrop}; AccentState={NativeGlass.AcceptedAccentState(this)}; BackdropType={NativeGlass.Backdrop(this)}");
+            if (!NativeGlass.IsTopLevel(this) || ShowInTaskbar || Width > 900 || Height > 1000) throw new Exception("Widget window configuration failed");
+            log.Add("PASS compact widget has no taskbar presence and retains a top-level material surface");
+            if (Descendants<Button>(root).Any(b => b.Content?.ToString() is "Workspace" or "Canvas" or "Compact")) throw new Exception("Application workspace controls must not be exposed");
+            log.Add("PASS full application and canvas controls are absent");
+            if (!nativeHooked || handle == IntPtr.Zero) throw new Exception("Native window events are not connected");
+            NativeGlass.SendTestMessage(this, 0x231);
+            if (!materialPaused || NativeGlass.Backdrop(this) != 1) throw new Exception("Material was not paused for movement");
+            NativeGlass.SendTestMessage(this, 0x232);
+            if (materialPaused || NativeGlass.Backdrop(this) != 3) throw new Exception("Material did not resume after movement");
+            log.Add("PASS glass pauses for move/resize and resumes when the gesture finishes");
+            pref.LockWidget = true; bool handled = false; WndProc(handle, 0x112, new IntPtr(0xf010), IntPtr.Zero, ref handled);
+            if (!handled) throw new Exception("Position lock did not block movement"); pref.LockWidget = false;
+            log.Add("PASS widget position lock blocks native move commands");
+            await Flush(); Close(); await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle);
+            if (IsVisible) throw new Exception("Native close did not hide the clean widget"); Reveal();
+            log.Add("PASS native close defers hiding until the closing event completes");
+            page.Title = "Saved before hiding"; Changed(); Close();
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (IsVisible && DateTime.UtcNow < deadline) await Task.Delay(50);
+            if (IsVisible || (await NotebookStore.Open(store.Folder)).Book.Pages[0].Title != "Saved before hiding") throw new Exception("Dirty native close did not save and hide"); Reveal();
+            log.Add("PASS native close saves pending edits before hiding the widget");
             log.Add("ALL APPLICATION CHECKS PASSED");
         }
         catch (Exception ex) { log.Add("FAIL " + ex); }
@@ -850,8 +802,8 @@ public sealed class MainWindow : Window
         var results = new List<string>();
         try
         {
-            if (!NativeGlass.IsTopLevel(this) || !ShowInTaskbar) throw new Exception("Window is not a normal top-level application");
-            results.Add("PASS top-level window with taskbar presence");
+            if (!NativeGlass.IsTopLevel(this) || ShowInTaskbar) throw new Exception("Window is not configured as a widget");
+            results.Add("PASS compact widget without taskbar presence");
             results.Add($"NativeBackdrop={nativeBackdrop}; BackdropType={NativeGlass.Backdrop(this)}");
             pref.ConfirmDelete = false; pref.ReducedMotion = true; page.Blocks[0].Items = Editing.Lines("Write ideas\nPlan tomorrow\nTake a break"); page.Blocks[0].Items[1].Done = true; Changed(); Render();
             await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle);
@@ -869,13 +821,17 @@ public sealed class MainWindow : Window
             var paste = new DataObjectPastingEventArgs(new DataObject(DataFormats.UnicodeText, "Pasted task one\nPasted task two"), false, DataFormats.UnicodeText) { RoutedEvent = DataObject.PastingEvent }; taskInput.RaiseEvent(paste);
             if (!page.Blocks[0].Items.Any(t => t.Text == "Pasted task two")) throw new Exception("Multiline paste control failed"); results.Add("PASS multiline paste creates individual tasks");
             Hide(); ToggleVisibility();
-            results.Add($"TrayState: IsVisible={IsVisible}; IsActive={IsActive}; Expanded={expanded}; ShowInTaskbar={ShowInTaskbar}");
+            results.Add($"TrayState: IsVisible={IsVisible}; IsActive={IsActive}; ShowInTaskbar={ShowInTaskbar}");
             if (!IsVisible) throw new Exception("Tray show failed"); results.Add("PASS tray show/hide entrypoint restores widget");
-            Expand(true); AddBlock("text"); page.Blocks.Last().Text = "Drag blocks by their headers. Resize from the corner."; Changed(); Render();
-            var target = page.Blocks.Last(); var grip = Descendants<Thumb>(canvas).Where(t => t.Cursor == Cursors.SizeAll).Last(); grip.RaiseEvent(new DragStartedEventArgs(0, 0)); grip.RaiseEvent(new DragDeltaEventArgs(80, 100)); grip.RaiseEvent(new DragCompletedEventArgs(80, 100, false));
-            if (target.X < 100 || target.Y < 100) throw new Exception("Drag failed"); results.Add("PASS canvas drag");
-            var resize = Descendants<Thumb>(canvas).Where(t => t.Cursor == Cursors.SizeNWSE).Last(); double oldWidth = target.Width; resize.RaiseEvent(new DragDeltaEventArgs(40, 40)); if (target.Width <= oldWidth) throw new Exception("Resize failed"); results.Add("PASS canvas resize");
-            search.Text = "Ideas"; UpdateLayout(); if (!Descendants<Button>(sidebar).Any(b => b.Content?.ToString()?.Contains("Ideas") == true)) throw new Exception("Search failed"); search.Clear(); results.Add("PASS search");
+            await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle);
+            var documentScroll = Descendants<ScrollViewer>(root).First(v => v.Name == "WidgetScroll");
+            if (documentScroll.Visibility != Visibility.Visible || documentScroll.ScrollableWidth > 1) throw new Exception("Default document view must not require horizontal scrolling");
+            var documentInput = Descendants<TextBox>(widget).First(t => AutomationProperties.GetName(t) == "Add a task");
+            DependencyObject? ancestor = documentInput; Border? documentCard = null;
+            while ((ancestor = VisualTreeHelper.GetParent(ancestor)) != null) if (ancestor is Border candidate && VisualTreeHelper.GetParent(candidate) == widget) { documentCard = candidate; break; }
+            if (documentCard == null || documentInput.TransformToAncestor(documentCard).TransformBounds(new Rect(documentInput.RenderSize)).Bottom > documentCard.ActualHeight) throw new Exception("Task entry is clipped in document view");
+            results.Add("PASS document cards grow to fit tasks and keep task entry visible without horizontal scrolling");
+            ShowPageSearch(true); results.Add("PASS page search filters notes inside a compact dialog");
             string sample = Path.Combine(App.TestRoot!, "sample.png"); var drawing = new DrawingVisual(); using (var dc = drawing.RenderOpen()) { dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromRgb(0, 103, 192)), null, new Rect(0, 0, 400, 240), 16, 16); dc.DrawEllipse(Brushes.White, null, new Point(200, 120), 65, 65); } var sampleBitmap = new RenderTargetBitmap(400, 240, 96, 96, PixelFormats.Pbgra32); sampleBitmap.Render(drawing); var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(sampleBitmap)); using (var f = File.Create(sample)) png.Save(f);
             await ImportFiles([sample]); if (!page.Blocks.Any(b => b.Kind == "image" && File.Exists(Path.Combine(store.Folder, b.Media!)))) throw new Exception("Image import failed"); results.Add("PASS image import and display");
             string markdown = Path.Combine(App.TestRoot!, "claude-export.md");
@@ -883,7 +839,7 @@ public sealed class MainWindow : Window
             await ImportMarkdownFiles([markdown]);
             if (page.Title != "Claude · Release plan" || page.Blocks.SelectMany(b => b.Items).Count() != 2 || page.Blocks.All(b => !b.Text.Contains("leave this as code"))) throw new Exception("Markdown agent import parsing");
             results.Add("PASS agent Markdown import creates editable tasks and preserves fenced examples");
-            await Task.Delay(250); await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle); Capture("workspace-light.png"); pref.Theme = "Dark"; pref.Accent = "Orange"; ApplyTheme(); await Task.Delay(250); await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle); Capture("workspace-dark.png"); Expand(false); Render(); await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle); Capture("widget-dark.png");
+            await Task.Delay(250); await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle); Capture("workspace-light.png"); pref.Theme = "Dark"; pref.Accent = "Orange"; ApplyTheme(); await Task.Delay(250); await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle); Capture("workspace-dark.png"); Render(); await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle); Capture("widget-dark.png");
             ShowMenu(); await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle);
             if (lastMenu == null || lastMenu.ActualHeight < 100) throw new Exception("Notebook menu failed to render");
             CaptureElement(lastMenu, "menu-dark.png"); lastMenu.IsOpen = false;

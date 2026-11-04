@@ -5,11 +5,12 @@
     <ImplicitUsings>disable</ImplicitUsings><Nullable>enable</Nullable>
     <AssemblyName>WidgetNotes</AssemblyName><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Assets\WidgetNotes.ico</ApplicationIcon>
     <PublishSingleFile>true</PublishSingleFile><SelfContained>true</SelfContained>
-    <Version>1.4.0</Version>
+    <Version>1.5.0</Version>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <PublishTrimmed>false</PublishTrimmed><DebugType>embedded</DebugType>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="WPF-UI" Version="4.3.0" />
     <Compile Remove="tools\IconBuilder\**\*.cs" />
     <Resource Include="Assets\WidgetNotes.ico" />
   </ItemGroup>

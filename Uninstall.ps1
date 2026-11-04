@@ -17,11 +17,17 @@ if ($PSCmdlet.ShouldProcess($installFolder, 'Remove WidgetNotes program and regi
     if (Test-Path 'HKCU:\Software\Classes\WidgetNotes.Notebook') { Remove-Item -LiteralPath 'HKCU:\Software\Classes\WidgetNotes.Notebook' -Recurse -Force }
     if (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WidgetNotes') { Remove-Item -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WidgetNotes' -Recurse -Force }
     # Exact filenames only: never recursively delete a user-selected directory.
-    foreach ($name in @('WidgetNotes.exe', 'Uninstall.ps1')) {
+    foreach ($name in @('WidgetNotes.exe', 'Uninstall.ps1', 'DotNet-LICENSE.txt', 'DotNet-ThirdPartyNotices.txt')) {
         $target = [IO.Path]::GetFullPath((Join-Path $installFolder $name))
         if ([IO.Path]::GetDirectoryName($target) -ne $installFolder) { throw 'Unexpected target; removal stopped.' }
         if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force }
     }
+    $noticeFolder = Join-Path $installFolder 'ThirdParty'
+    foreach ($notice in @('WPF-UI-LICENSE.md', 'WPF-UI-NOTICES.txt', 'WPF-UI-Abstractions-LICENSE.md')) {
+        $target = Join-Path $noticeFolder $notice
+        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force }
+    }
+    if ((Test-Path -LiteralPath $noticeFolder) -and -not (Get-ChildItem -LiteralPath $noticeFolder -Force)) { Remove-Item -LiteralPath $noticeFolder }
     if ((Test-Path -LiteralPath $installFolder) -and -not (Get-ChildItem -LiteralPath $installFolder -Force)) { Remove-Item -LiteralPath $installFolder }
     Write-Host 'WidgetNotes removed. All notebooks and preferences were kept.'
 }

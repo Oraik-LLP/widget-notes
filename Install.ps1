@@ -8,10 +8,48 @@ $installedExe = Join-Path $installFolder 'WidgetNotes.exe'
 $uninstallScript = Join-Path $installFolder 'Uninstall.ps1'
 if ($PSCmdlet.ShouldProcess($installFolder, 'Install WidgetNotes for the current Windows user')) {
     $running = Get-Process WidgetNotes -ErrorAction SilentlyContinue
-    if ($running) { throw 'Exit WidgetNotes using its tray menu before installing or updating. Your notes will be kept.' }
+    if ($running) {
+        foreach ($process in $running) {
+            if ($process.Path -ne $installedExe -and $process.Path -ne $sourceExe) { throw 'Exit the older portable WidgetNotes copy from its tray menu before updating. Your notes will be kept.' }
+        }
+        if (-not ('WidgetNotesInstallRestartManager' -as [type])) {
+            Add-Type @'
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class WidgetNotesInstallRestartManager {
+    [StructLayout(LayoutKind.Sequential)] struct UniqueProcess { public uint Id; public System.Runtime.InteropServices.ComTypes.FILETIME Started; }
+    [DllImport("rstrtmgr.dll", CharSet=CharSet.Unicode)] static extern int RmStartSession(out uint session, uint flags, StringBuilder key);
+    [DllImport("rstrtmgr.dll", CharSet=CharSet.Unicode)] static extern int RmRegisterResources(uint session, uint files, string[] names, uint applications, UniqueProcess[] processes, uint services, string[] serviceNames);
+    [DllImport("rstrtmgr.dll")] static extern int RmShutdown(uint session, uint flags, IntPtr callback);
+    [DllImport("rstrtmgr.dll")] static extern int RmEndSession(uint session);
+    public static int Close(int[] processIds) {
+        var targets = new UniqueProcess[processIds.Length];
+        for (int i=0;i<processIds.Length;i++) {
+            var process=Process.GetProcessById(processIds[i]); long time=process.StartTime.ToFileTimeUtc();
+            targets[i]=new UniqueProcess { Id=(uint)process.Id, Started=new System.Runtime.InteropServices.ComTypes.FILETIME { dwLowDateTime=unchecked((int)time), dwHighDateTime=unchecked((int)(time>>32)) } };
+        }
+        uint session; int result=RmStartSession(out session,0,new StringBuilder(33)); if(result!=0)return result;
+        try { result=RmRegisterResources(session,0,null,(uint)targets.Length,targets,0,null); return result==0?RmShutdown(session,0,IntPtr.Zero):result; }
+        finally { RmEndSession(session); }
+    }
+}
+'@
+        }
+        $result = [WidgetNotesInstallRestartManager]::Close([int[]]@($running | ForEach-Object Id))
+        if ($result -ne 0 -or (Get-Process WidgetNotes -ErrorAction SilentlyContinue)) { throw "WidgetNotes did not complete its graceful save/shutdown (Windows result $result). It was not forced to exit." }
+    }
     New-Item -ItemType Directory -Path $installFolder -Force | Out-Null
     Copy-Item -LiteralPath $sourceExe -Destination $installedExe -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Uninstall.ps1') -Destination $uninstallScript -Force
+    foreach ($notice in @('DotNet-LICENSE.txt', 'DotNet-ThirdPartyNotices.txt', 'ThirdParty\WPF-UI-LICENSE.md', 'ThirdParty\WPF-UI-NOTICES.txt', 'ThirdParty\WPF-UI-Abstractions-LICENSE.md')) {
+        $noticeSource = Join-Path $PSScriptRoot $notice
+        if (-not (Test-Path -LiteralPath $noticeSource)) { continue }
+        $noticeTarget = Join-Path $installFolder $notice
+        New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($noticeTarget)) -Force | Out-Null
+        Copy-Item -LiteralPath $noticeSource -Destination $noticeTarget -Force
+    }
     $shell = New-Object -ComObject WScript.Shell
     foreach ($shortcutFile in @((Join-Path ([Environment]::GetFolderPath('Desktop')) 'WidgetNotes.lnk'), (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\WidgetNotes.lnk'))) {
         $shortcut = $shell.CreateShortcut($shortcutFile)
@@ -23,12 +61,14 @@ if ($PSCmdlet.ShouldProcess($installFolder, 'Install WidgetNotes for the current
     }
     # Repair existing WidgetNotes pins/startup shortcuts that still launch an older portable copy.
     $shortcutFolders = @(
+        ([Environment]::GetFolderPath('Desktop')),
+        ([Environment]::GetFolderPath('StartMenu')),
         (Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'),
         ([Environment]::GetFolderPath('Startup'))
     )
     foreach ($shortcutFolder in $shortcutFolders) {
         if (-not (Test-Path -LiteralPath $shortcutFolder)) { continue }
-        foreach ($entry in Get-ChildItem -LiteralPath $shortcutFolder -Filter '*.lnk' -File) {
+        foreach ($entry in Get-ChildItem -LiteralPath $shortcutFolder -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue) {
             $shortcut = $shell.CreateShortcut($entry.FullName)
             if ([IO.Path]::GetFileName($shortcut.TargetPath) -ine 'WidgetNotes.exe') { continue }
             $shortcut.TargetPath = $installedExe
@@ -53,7 +93,7 @@ if ($PSCmdlet.ShouldProcess($installFolder, 'Install WidgetNotes for the current
     $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WidgetNotes'
     New-Item -Path $uninstallKey -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name DisplayName -Value 'WidgetNotes' -PropertyType String -Force | Out-Null
-    New-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '1.4.0' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '1.5.0' -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name InstallLocation -Value $installFolder -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name UninstallString -Value ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $uninstallScript + '"') -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name NoModify -Value 1 -PropertyType DWord -Force | Out-Null

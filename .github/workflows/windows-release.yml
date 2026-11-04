@@ -25,8 +25,8 @@ jobs:
         shell: pwsh
         run: |
           $testRoot = Join-Path $env:RUNNER_TEMP 'WidgetNotes-self-test'
-          & .\dist\package\WidgetNotes.exe --self-test "--test-root=$testRoot"
-          if ($LASTEXITCODE -ne 0) { throw 'Storage diagnostics failed.' }
+          $process = Start-Process .\dist\package\WidgetNotes.exe -ArgumentList @('--self-test', "--test-root=$testRoot") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Storage diagnostics failed.' }
           $report = Get-Content (Join-Path $testRoot 'self-test.txt') -Raw
           if ($report -notmatch 'ALL TESTS PASSED') { throw 'Storage diagnostics did not report success.' }
           Write-Host $report
@@ -34,10 +34,18 @@ jobs:
         shell: pwsh
         run: |
           $testRoot = Join-Path $env:RUNNER_TEMP 'WidgetNotes-ui-test'
-          & .\dist\package\WidgetNotes.exe --ui-test "--test-root=$testRoot"
-          if ($LASTEXITCODE -ne 0) { throw 'WPF interaction diagnostics failed.' }
+          $process = Start-Process .\dist\package\WidgetNotes.exe -ArgumentList @('--ui-test', "--test-root=$testRoot") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'WPF interaction diagnostics failed.' }
           $report = Get-Content (Join-Path $testRoot 'ui-test.txt') -Raw
           if ($report -notmatch 'ALL UI TESTS PASSED') { throw 'WPF interaction diagnostics did not report success.' }
+          Write-Host $report
+      - name: Application window diagnostics
+        shell: pwsh
+        run: |
+          $testRoot = Join-Path $env:RUNNER_TEMP 'WidgetNotes-application-test'
+          $process = Start-Process .\dist\package\WidgetNotes.exe -ArgumentList @('--application-test', "--test-root=$testRoot") -Wait -PassThru
+          $report = Get-Content (Join-Path $testRoot 'desktop-test.txt') -Raw
+          if ($process.ExitCode -ne 0 -or $report -notmatch 'ALL APPLICATION CHECKS PASSED') { throw $report }
           Write-Host $report
       - uses: actions/upload-artifact@v7
         with:

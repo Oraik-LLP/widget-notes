@@ -1,39 +1,35 @@
-WidgetNotes 1.3.0 — Windows x64 verification
+WidgetNotes 1.4.0 — Windows x64 verification
 
-BUILD AND PACKAGE
-- .NET SDK 10.0.402; bundled .NET runtime 10.0.13.
-- Self-contained WPF single-file app; no separate .NET runtime install required.
-- Build and packaging completed. NU1900 was reported because NuGet's vulnerability service was unreachable; restore completed from the local cache.
-- Launchable app: dist/package/WidgetNotes.exe
-- Installer: dist/package/Install.cmd and Install.ps1
-- Portable archive: dist/WidgetNotes-Windows-x64.zip
-- App SHA-256: CE7AD850929B914318B5053233D7750AC93232AB1757DCFCDCE33FAD04419677
-- ZIP SHA-256: EE595E3276189924252ADA33C5627601AE58948FDBB931BA6F5AC1222532140D
-- Third-party shader license and notices are included in the ZIP.
+CHANGES
+- Removed the cached screenshot/pixel-shader renderer and Explorer desktop parenting.
+- Uses live Windows compositor acrylic. Interactive movement/resizing uses the lighter native blur state, then restores acrylic afterward.
+- Full workspace opens by default as a top-level application with taskbar presence, native resizing, and minimize/maximize/close controls. Compact view remains optional.
+- Shared rounded styles cover menus, separators, checkboxes, text fields, dropdowns, scrollbars, dialogs, and confirmation prompts. Settings Save/Cancel stay visible while scrolling.
+- Fixed a reproduced menu crash caused by applying a MenuItem style to Separator elements.
+- Avoids rebuilding controls or resetting the material on every activation.
+- Setup repairs existing WidgetNotes taskbar/startup shortcuts that target older portable copies.
 
-CHECKS ON THE PACKAGED APP
-- 25 storage, editing, backup, archive, validation, and Markdown parser checks passed.
-- 16 WPF interaction checks passed, including shader resource loading, Markdown agent import, editable task conversion, fenced-code preservation, persistence, and portable archive round trip.
-- UI edit through render: 4.0 ms.
-- Startup to content-ready: 770 ms; working set: 146.4 MiB; sampled idle CPU: 0.078% of total machine capacity.
-- Test screenshots and logs are under dist/ui-test-final-v130. Physical desktop capture is disabled in isolated UI tests.
+CHECKS
+- Release build completed with .NET SDK 10.0.402 and bundled runtime 10.0.13.
+- 25 storage/parser checks passed; report: dist/self-verified-v140/self-test.txt.
+- 17 WPF interaction checks passed, including the actual menu, settings dialog, and dropdown in both themes; report/images: dist/ui-verified-v140.
+- 3 application checks passed: normal top-level workspace, accepted native compositor transitions during movement, and normal top-level compact view; report: dist/application-release-v140/desktop-test.txt.
+- UI edit through render: 4.1 ms.
+- Benchmark: ready in 784 ms, working set 153.2 MiB, sampled process idle CPU 0.052% of total machine capacity.
+- Installer WhatIf completed. Installed EXE matches the release EXE; startup, Desktop/Start menu shortcuts, and uninstall version are verified for the actual Windows user.
+- Running runtime report: Version 1.4.0.0; native acrylic accepted (AccentState 4); TopLevel true; Taskbar true; Mode Workspace.
+- Existing notebooks are stored separately and retained. Preferences were backed up before the update.
 
-GLASS AND DESKTOP
-- The widget uses a cached capture of its own screen rectangle as the input to a WPF pixel shader, with refraction and chromatic edge separation. Capture refresh is debounced after movement/resizing to avoid continuous desktop copying.
-- The packaged shader resource loads during the WPF diagnostics. This shell does not provide a usable Explorer desktop host, so live desktop capture and physical appearance were not visually recorded here; Windows acrylic remains the fallback if capture fails.
-- The app's versioned single-instance signal separates 1.3 from older builds, preventing a new launch from being handed to the old UI process.
-
-INSTALLATION
-- Install.ps1 -WhatIf -NoLaunch completed without changes.
-- Installed for the current Windows user at %LOCALAPPDATA%\Programs\WidgetNotes; package and installed EXE hashes matched.
-- Verified Desktop and Start menu shortcuts, uninstall registration (version 1.3.0), and the HKCU Run startup entry.
-- The new installed executable is running. The prior copy was asked to close through its save-on-close path before it was stopped for the update.
-- User notebooks remain in Documents\WidgetNotes; the installer does not modify them.
-
-GITHUB
-- The GitHub Actions build, diagnostic, artifact, and tagged-release workflow is present at .github/workflows/windows-release.yml.
-- No Git remote or GitHub CLI is configured in this workspace, so this build is local and has not been published as a hosted release.
+ARTIFACTS
+- App: dist/package/WidgetNotes.exe
+- Installer: dist/package/Install.cmd
+- ZIP: dist/WidgetNotes-1.4.0-Windows-x64.zip
+- EXE SHA-256: 68370E448E5F73A4946EBDC068B52ED8ADEF0817B4BA074DBC3B80C23EA8750C
+- ZIP SHA-256: 852E44CFAB510653787E76F945D862F79CED952C6F67E843BFD783344727D149
 
 LIMITS
-- The app is unsigned because no signing certificate was supplied.
-- Live shader output across Explorer desktop composition and mixed-DPI displays was not physically inspected in this session.
+- Live screen appearance and frame cadence were not visually verified during this repair. A display-level measurement was occluded by another application, discarded, and not counted as pass evidence. Compositor tests validate accepted API state transitions, not displayed pixel output.
+- System settings and Windows composition policy can simplify transparency. No Windows security, privacy, or transparency settings were changed.
+- No sign-out/sign-in cycle was performed; startup registration was checked directly.
+- App is unsigned. The build reported NU1900 because NuGet vulnerability data was unreachable; restore/build completed from cached packages.
+- Local Git release only; no Git remote or GitHub CLI is configured. The GitHub Actions build, diagnostics, and release workflow is included.

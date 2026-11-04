@@ -26,7 +26,6 @@ $env:DOTNET_NOLOGO = '1'
 if (-not (Test-Path -LiteralPath $iconSource)) { throw "Icon source is missing: $iconSource" }
 if (-not (Test-Path -LiteralPath $iconBuilder)) { throw "Icon builder is missing: $iconBuilder" }
 New-Item -ItemType Directory -Path $publishRoot -Force | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $publishRoot 'ThirdParty') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $env:APPDATA 'NuGet') -Force | Out-Null
 
 & $DotNetPath restore $iconBuilder --configfile $nugetConfig
@@ -36,10 +35,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Icon build failed.' }
 
 & $DotNetPath restore $project --configfile $nugetConfig --runtime win-x64
 if ($LASTEXITCODE -ne 0) { throw 'WidgetNotes restore failed.' }
-& $DotNetPath publish $project -c Release -r win-x64 --self-contained true --no-restore -o $publishRoot -p:Version=1.3.0
+& $DotNetPath publish $project -c Release -r win-x64 --self-contained true --no-restore -o $publishRoot -p:Version=1.4.0
 if ($LASTEXITCODE -ne 0) { throw 'WidgetNotes publish failed.' }
 
-foreach ($name in @('Install.cmd', 'Install.ps1', 'Uninstall.ps1', 'README.md', 'DotNet-LICENSE.txt', 'DotNet-ThirdPartyNotices.txt', 'ThirdPartyNotices.txt', 'ThirdParty\WPF-Liquid-Glass-Effect-MIT.txt')) {
+foreach ($legacy in @('ThirdPartyNotices.txt', 'ThirdParty\WPF-Liquid-Glass-Effect-MIT.txt')) {
+    $legacyFile = Join-Path $publishRoot $legacy
+    if (Test-Path -LiteralPath $legacyFile) { Remove-Item -LiteralPath $legacyFile -Force }
+}
+foreach ($name in @('Install.cmd', 'Install.ps1', 'Uninstall.ps1', 'README.md', 'DotNet-LICENSE.txt', 'DotNet-ThirdPartyNotices.txt')) {
     $source = Join-Path $repoRoot $name
     if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $publishRoot $name) -Force }
 }

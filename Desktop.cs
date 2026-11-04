@@ -24,15 +24,6 @@ public static class Desktop
     public static void Shell(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
     [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
-    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int val, int size);
-    public static void WindowTheme(Window window, bool dark, bool acrylicBackdrop)
-    {
-        var h = new WindowInteropHelper(window).Handle; if (h == IntPtr.Zero) return;
-        int d = dark ? 1 : 0; DwmSetWindowAttribute(h, 20, ref d, 4); int corner = 2; DwmSetWindowAttribute(h, 33, ref corner, 4);
-        // Acrylic remains available as a fallback when the captured glass backdrop
-        // is unavailable; the compact Explorer child uses the cached pixel shader.
-        int backdrop = acrylicBackdrop ? 3 : 1; DwmSetWindowAttribute(h, 38, ref backdrop, 4);
-    }
     public static (uint Mods, uint Key) ParseShortcut(string text)
     {
         uint mods = 0x4000; Key key = Key.None;
@@ -126,19 +117,6 @@ public sealed class App : System.Windows.Application
     public static async Task<NotebookStore> NewStore(string root, string title)
     {
         var book = new Notebook { Title = title }; var store = new NotebookStore(Path.Combine(root, book.Id), book); await store.Save(Json.Write(book)); return store;
-    }
-    public void RecoverDesktopWindow(NotebookStore store, Preferences pref)
-    {
-        if (Dispatcher.HasShutdownStarted) return;
-        var retry = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        retry.Tick += async (_, _) =>
-        {
-            if (DesktopAttachment.FindHost() == IntPtr.Zero) return;
-            retry.Stop();
-            try { await store.Save(Json.Write(store.Book)); } catch { /* The in-memory document is retained below. */ }
-            var replacement = new MainWindow(store, pref); MainWindow = replacement; replacement.MarkRecoveredChanges(); replacement.Show();
-        };
-        retry.Start();
     }
     protected override void OnExit(ExitEventArgs e) { tray?.Dispose(); mutex?.Dispose(); base.OnExit(e); }
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)

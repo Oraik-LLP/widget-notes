@@ -21,6 +21,22 @@ if ($PSCmdlet.ShouldProcess($installFolder, 'Install WidgetNotes for the current
         $shortcut.Description = 'Quick checklists and a personal notebook'
         $shortcut.Save()
     }
+    # Repair existing WidgetNotes pins/startup shortcuts that still launch an older portable copy.
+    $shortcutFolders = @(
+        (Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'),
+        ([Environment]::GetFolderPath('Startup'))
+    )
+    foreach ($shortcutFolder in $shortcutFolders) {
+        if (-not (Test-Path -LiteralPath $shortcutFolder)) { continue }
+        foreach ($entry in Get-ChildItem -LiteralPath $shortcutFolder -Filter '*.lnk' -File) {
+            $shortcut = $shell.CreateShortcut($entry.FullName)
+            if ([IO.Path]::GetFileName($shortcut.TargetPath) -ine 'WidgetNotes.exe') { continue }
+            $shortcut.TargetPath = $installedExe
+            $shortcut.WorkingDirectory = $installFolder
+            $shortcut.IconLocation = "$installedExe,0"
+            $shortcut.Save()
+        }
+    }
     $runPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
     New-Item -Path $runPath -Force | Out-Null
     if ($NoStartup) { Remove-ItemProperty -Path $runPath -Name WidgetNotes -ErrorAction SilentlyContinue }
@@ -37,7 +53,7 @@ if ($PSCmdlet.ShouldProcess($installFolder, 'Install WidgetNotes for the current
     $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WidgetNotes'
     New-Item -Path $uninstallKey -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name DisplayName -Value 'WidgetNotes' -PropertyType String -Force | Out-Null
-    New-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '1.3.0' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '1.4.0' -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name InstallLocation -Value $installFolder -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name UninstallString -Value ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $uninstallScript + '"') -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name NoModify -Value 1 -PropertyType DWord -Force | Out-Null

@@ -47,6 +47,11 @@ public sealed class Preferences
     public bool ReducedMotion { get; set; }
     public bool Pinned { get; set; }
     public bool LockWidget { get; set; }
+    public bool CompactMode { get; set; }
+    public double WorkspaceLeft { get; set; } = 100;
+    public double WorkspaceTop { get; set; } = 80;
+    public double WorkspaceWidth { get; set; } = 1180;
+    public double WorkspaceHeight { get; set; } = 800;
     public bool Startup { get; set; }
     public string Shortcut { get; set; } = "Ctrl+Alt+N";
     public double Left { get; set; } = 60;

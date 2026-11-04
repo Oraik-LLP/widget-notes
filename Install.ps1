@@ -6,9 +6,9 @@ if (-not (Test-Path -LiteralPath $sourceExe)) { throw 'Keep Install.ps1 beside W
 $installFolder = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\WidgetNotes'
 $installedExe = Join-Path $installFolder 'WidgetNotes.exe'
 $uninstallScript = Join-Path $installFolder 'Uninstall.ps1'
-$running = Get-Process WidgetNotes -ErrorAction SilentlyContinue
-if ($running) { throw 'Exit WidgetNotes using its tray menu before installing or updating. Your notes will be kept.' }
 if ($PSCmdlet.ShouldProcess($installFolder, 'Install WidgetNotes for the current Windows user')) {
+    $running = Get-Process WidgetNotes -ErrorAction SilentlyContinue
+    if ($running) { throw 'Exit WidgetNotes using its tray menu before installing or updating. Your notes will be kept.' }
     New-Item -ItemType Directory -Path $installFolder -Force | Out-Null
     Copy-Item -LiteralPath $sourceExe -Destination $installedExe -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Uninstall.ps1') -Destination $uninstallScript -Force
@@ -37,14 +37,14 @@ if ($PSCmdlet.ShouldProcess($installFolder, 'Install WidgetNotes for the current
     $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WidgetNotes'
     New-Item -Path $uninstallKey -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name DisplayName -Value 'WidgetNotes' -PropertyType String -Force | Out-Null
-    New-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '1.2.0' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '1.3.0' -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name InstallLocation -Value $installFolder -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name UninstallString -Value ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $uninstallScript + '"') -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name NoModify -Value 1 -PropertyType DWord -Force | Out-Null
     New-ItemProperty -Path $uninstallKey -Name NoRepair -Value 1 -PropertyType DWord -Force | Out-Null
     Write-Host "Installed: $installedExe"
     Write-Host 'Your notebooks are stored separately in Documents\WidgetNotes. Startup can be changed in Settings.'
-    if (-not $NoLaunch) { Start-Process -FilePath $installedExe -WindowStyle Hidden }
+    if (-not $NoLaunch) { Start-Process -FilePath $installedExe }
 }
 
 

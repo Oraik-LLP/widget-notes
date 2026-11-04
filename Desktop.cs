@@ -29,8 +29,8 @@ public static class Desktop
     {
         var h = new WindowInteropHelper(window).Handle; if (h == IntPtr.Zero) return;
         int d = dark ? 1 : 0; DwmSetWindowAttribute(h, 20, ref d, 4); int corner = 2; DwmSetWindowAttribute(h, 33, ref corner, 4);
-        // Acrylic is applied only to the expanded top-level workspace. The compact
-        // Explorer child keeps its own lightweight glass gradient for responsiveness.
+        // Acrylic remains available as a fallback when the captured glass backdrop
+        // is unavailable; the compact Explorer child uses the cached pixel shader.
         int backdrop = acrylicBackdrop ? 3 : 1; DwmSetWindowAttribute(h, 38, ref backdrop, 4);
     }
     public static (uint Mods, uint Key) ParseShortcut(string text)
@@ -72,8 +72,9 @@ public sealed class App : System.Windows.Application
         base.OnStartup(e);
         DispatcherUnhandledException += (_, ev) => { MessageBox.Show(ev.Exception.Message, "WidgetNotes — unexpected error"); ev.Handled = true; };
         string suffix = TestRoot == null ? Environment.UserName : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(TestRoot))))[..16];
-        mutex = new Mutex(true, "Local\\WidgetNotes-" + suffix, out bool first);
-        wake = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\WidgetNotesWake-" + suffix);
+        string instance = typeof(App).Assembly.GetName().Version?.ToString(2) ?? "1.0";
+        mutex = new Mutex(true, "Local\\WidgetNotes-" + instance + "-" + suffix, out bool first);
+        wake = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\WidgetNotesWake-" + instance + "-" + suffix);
         if (!first)
         {
             // File arguments are handed to the owning process through a per-user inbox.

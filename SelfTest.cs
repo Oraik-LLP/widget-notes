@@ -16,6 +16,8 @@ public static class SelfTest
             {
                 var book = new Notebook(); var block = book.Pages[0].Blocks[0]; block.Items = Editing.Lines("one\r\ntwo\n\nthree");
                 Check(block.Items.Count == 3 && block.Items[2].Text == "three", "multiline paste normalization");
+                var markdown = MarkdownImport.Parse("claude-answer.md", "---\ntitle: Plan\nsource: Claude\n---\n# Plan\n\n- [ ] Ship\n- [x] Review\n\n```md\n- [ ] sample\n```");
+                Check(markdown.Title == "Claude · Plan" && markdown.Sections.SelectMany(s => s.Tasks ?? []).Count() == 2 && markdown.Sections.Any(s => s.Text.Contains("sample")), "agent Markdown import and fenced task preservation");
                 var pref = new Preferences(); Check(!Editing.RequiresConfirmation(block, pref), "completion confirmation default off"); pref.ConfirmComplete = true; Check(Editing.RequiresConfirmation(block, pref), "global confirmation"); block.ConfirmCompletion = false; Check(!Editing.RequiresConfirmation(block, pref), "per-list override"); block.ConfirmCompletion = null; Check(Editing.RequiresConfirmation(block, pref), "per-list inheritance");
                 var store = new NotebookStore(Path.Combine(root, "original"), book); await store.Save(Json.Write(book)); book.Title = "Project A"; await store.Save(Json.Write(book));
                 Check(File.Exists(Path.Combine(store.Folder, "notebook.json.bak")), "last-good backup created");

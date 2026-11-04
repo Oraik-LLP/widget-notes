@@ -1,31 +1,39 @@
-WidgetNotes 1.2.0 — Windows x64 verification
+WidgetNotes 1.3.0 — Windows x64 verification
 
-BUILD
+BUILD AND PACKAGE
 - .NET SDK 10.0.402; bundled .NET runtime 10.0.13.
-- Self-contained WPF single-file executable; no separate runtime install required.
-- Release build completed. The only build warning was NU1900 because this environment could not reach NuGet's vulnerability-data service; packages were restored from the local cache.
-- Source includes a GitHub Actions workflow for Windows builds, artifacts, and tagged releases. No GitHub remote is configured in this workspace.
-
-PACKAGE
+- Self-contained WPF single-file app; no separate .NET runtime install required.
+- Build and packaging completed. NU1900 was reported because NuGet's vulnerability service was unreachable; restore completed from the local cache.
 - Launchable app: dist/package/WidgetNotes.exe
-- Installer: dist/package/Install.cmd (per-user setup, Start menu/Desktop shortcuts, uninstall registration, .wnote association, startup at sign-in, and launch after setup).
+- Installer: dist/package/Install.cmd and Install.ps1
 - Portable archive: dist/WidgetNotes-Windows-x64.zip
-- SHA-256: 48A37D880279AAED56D949B604AB119FD5EDAA842812D4BD6BBCFF5A0D1695F2
+- App SHA-256: CE7AD850929B914318B5053233D7750AC93232AB1757DCFCDCE33FAD04419677
+- ZIP SHA-256: EE595E3276189924252ADA33C5627601AE58948FDBB931BA6F5AC1222532140D
+- Third-party shader license and notices are included in the ZIP.
 
 CHECKS ON THE PACKAGED APP
-- 24 storage, editing, backup, archive, and validation checks passed.
-- 14 WPF checks passed: task control rendering/editing, undo, page navigation, task entry and multiline paste, tray show/hide recovery, canvas drag/resize, page search, image import, persistence, session-end save, and portable archive round trip.
-- UI-thread text edit through render: 6.2 ms in the final diagnostic run.
-- Startup to content-ready: 789 ms in the benchmark run; working set 146.6 MiB; sampled idle CPU 0.026% of total machine capacity.
-- Test screenshots are in dist/ui-test-final. These are RenderTargetBitmap captures, not physical display recordings.
-- This Codex session has an Explorer process but no SHELLDLL_DefView desktop host. The widget therefore exercises its floating-window fallback here; on normal Explorer desktop sessions it attaches as a compact desktop widget and retries automatically when Explorer is unavailable.
+- 25 storage, editing, backup, archive, validation, and Markdown parser checks passed.
+- 16 WPF interaction checks passed, including shader resource loading, Markdown agent import, editable task conversion, fenced-code preservation, persistence, and portable archive round trip.
+- UI edit through render: 4.0 ms.
+- Startup to content-ready: 770 ms; working set: 146.4 MiB; sampled idle CPU: 0.078% of total machine capacity.
+- Test screenshots and logs are under dist/ui-test-final-v130. Physical desktop capture is disabled in isolated UI tests.
+
+GLASS AND DESKTOP
+- The widget uses a cached capture of its own screen rectangle as the input to a WPF pixel shader, with refraction and chromatic edge separation. Capture refresh is debounced after movement/resizing to avoid continuous desktop copying.
+- The packaged shader resource loads during the WPF diagnostics. This shell does not provide a usable Explorer desktop host, so live desktop capture and physical appearance were not visually recorded here; Windows acrylic remains the fallback if capture fails.
+- The app's versioned single-instance signal separates 1.3 from older builds, preventing a new launch from being handed to the old UI process.
 
 INSTALLATION
-- Installer previewed with PowerShell -WhatIf before applying.
-- Startup registration and installed shortcuts are verified for the current Windows user.
-- A sign-out/sign-in cycle was not run; Windows must be restarted or the user signed out/in to observe automatic startup.
+- Install.ps1 -WhatIf -NoLaunch completed without changes.
+- Installed for the current Windows user at %LOCALAPPDATA%\Programs\WidgetNotes; package and installed EXE hashes matched.
+- Verified Desktop and Start menu shortcuts, uninstall registration (version 1.3.0), and the HKCU Run startup entry.
+- The new installed executable is running. The prior copy was asked to close through its save-on-close path before it was stopped for the update.
+- User notebooks remain in Documents\WidgetNotes; the installer does not modify them.
+
+GITHUB
+- The GitHub Actions build, diagnostic, artifact, and tagged-release workflow is present at .github/workflows/windows-release.yml.
+- No Git remote or GitHub CLI is configured in this workspace, so this build is local and has not been published as a hosted release.
 
 LIMITS
-- App is unsigned because no signing certificate was supplied.
-- Physical Explorer desktop layering, mixed-DPI monitors, hotkey conflicts, printer/PDF output, and screen-reader behavior still require checks on a normal interactive Windows session.
-
+- The app is unsigned because no signing certificate was supplied.
+- Live shader output across Explorer desktop composition and mixed-DPI displays was not physically inspected in this session.

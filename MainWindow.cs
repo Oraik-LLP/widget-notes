@@ -25,6 +25,9 @@ public sealed class MainWindow : Window
     readonly TextBlock status = new() { FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
     readonly TextBlock counter = new() { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
     readonly Grid root = new();
+    readonly Grid windowRoot = new();
+    readonly Image glassBackdrop = new() { Stretch = Stretch.Fill, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+    readonly DispatcherTimer glassRefresh = new() { Interval = TimeSpan.FromMilliseconds(180) };
     readonly Grid content = new();
     readonly StackPanel sidebar = new();
     readonly Canvas canvas = new() { Background = Brushes.Transparent, Width = 2000, Height = 1600, ClipToBounds = true };
@@ -50,6 +53,9 @@ public sealed class MainWindow : Window
     Brush glassPanel = Brushes.White, glassRaised = Brushes.White, inputSurface = Brushes.White;
     IntPtr handle;
     bool shortcutRegistered;
+    bool glassCaptureInProgress;
+    LiquidGlassEffect? glassEffect;
+    Brush? glassFallback;
     public MainWindow(NotebookStore initial, Preferences settings)
     {
         store = initial; pref = settings; pref.Pinned = false;
@@ -59,7 +65,8 @@ public sealed class MainWindow : Window
         MinWidth = 340; MinHeight = 360; Width = Math.Clamp(pref.Width, 340, 900); Height = Math.Clamp(pref.Height, 360, 1000);
         Left = double.IsFinite(pref.Left) ? pref.Left : 60; Top = double.IsFinite(pref.Top) ? pref.Top : 60;
         ClampPosition(); Topmost = false; ShowInTaskbar = false; ShowActivated = false; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.CanResizeWithGrip;
-        Content = root; AllowDrop = true; root.SnapsToDevicePixels = true; root.UseLayoutRounding = true;
+        Content = windowRoot; windowRoot.Children.Add(glassBackdrop); windowRoot.Children.Add(root);
+        AllowDrop = true; root.SnapsToDevicePixels = true; root.UseLayoutRounding = true;
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -116,16 +123,26 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(search, "Search pages");
         AutomationProperties.SetName(title, "Page title");
         PreviewKeyDown += OnKeys;
-        Drop += async (_, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Handled = true; await ImportFiles((string[])e.Data.GetData(DataFormats.FileDrop)); } };
+        Drop += async (_, e) =>
+        {
+            if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+            e.Handled = true;
+            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            string[] markdown = files.Where(IsMarkdownFile).ToArray();
+            string[] attachments = files.Where(f => !IsMarkdownFile(f)).ToArray();
+            if (markdown.Length > 0) await ImportMarkdownFiles(markdown);
+            if (attachments.Length > 0) await ImportFiles(attachments);
+        };
         DragOver += (_, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } };
         Closing += OnClosing;
         SourceInitialized += (_, _) => { handle = new WindowInteropHelper(this).Handle; HwndSource.FromHwnd(handle)?.AddHook(WndProc); ApplyTheme(); TryShortcut(pref.Shortcut, false); };
-        Loaded += (_, _) => { AttachToDesktop(); desktopWatch.Start(); };
+        Loaded += (_, _) => { AttachToDesktop(); desktopWatch.Start(); ScheduleGlassRefresh(); };
+        glassRefresh.Tick += async (_, _) => { glassRefresh.Stop(); await RefreshGlassBackdrop(); };
         desktopWatch.Tick += (_, _) => { if (!expanded && !changingMode && !desktopAttachment.IsAttached) AttachToDesktop(); };
         Closed += (_, _) => { desktopWatch.Stop(); autosave.Stop(); modalOwner?.Close(); if (!exiting) ((App)System.Windows.Application.Current).RecoverDesktopWindow(store, pref); };
         Activated += (_, _) => { if (pref.Theme == "System" || pref.Accent == "Windows") ApplyTheme(); };
-        LocationChanged += (_, _) => { if (IsVisible && !expanded && !changingMode) CaptureCompact(); };
-        SizeChanged += (_, _) => { if (IsVisible && !expanded && !changingMode) CaptureCompact(); };
+        LocationChanged += (_, _) => { if (IsVisible && !expanded && !changingMode) CaptureCompact(); if (IsVisible && !changingMode) ScheduleGlassRefresh(); };
+        SizeChanged += (_, _) => { if (IsVisible && !expanded && !changingMode) CaptureCompact(); if (IsVisible && !changingMode) ScheduleGlassRefresh(); };
         ContentRendered += async (_, _) => { if (App.Arguments.Contains("--desktop-test")) await DesktopTest(); else if (App.Arguments.Contains("--ui-test") || App.Arguments.Contains("--benchmark")) await RunUiVerification(); };
         ApplyTheme(); Render(); SavePreferences(); status.Text = "Saved locally";
 
@@ -153,17 +170,17 @@ public sealed class MainWindow : Window
         foreground = B(dark ? "#F4F8FF" : "#19263A");
         muted = B(dark ? "#B7C5D9" : "#68788D");
         border = B(dark ? "#52FFFFFF" : "#879BB5");
-        glassPanel = B(dark ? "#8A30445F" : "#BFFFFFFF");
-        glassRaised = B(dark ? "#A63D5675" : "#DBFFFFFF");
-        inputSurface = B(dark ? "#5C0F1B2D" : "#A8EAF1F8");
-        var hoverSurface = B(dark ? "#B5486484" : "#E7F5FCFF");
+        glassPanel = B(dark ? "#5830445F" : "#62FFFFFF");
+        glassRaised = B(dark ? "#70445C7A" : "#78FFFFFF");
+        inputSurface = B(dark ? "#70101D30" : "#82EDF5FB");
+        var hoverSurface = B(dark ? "#A5486484" : "#C8F5FCFF");
         accent = B(pref.Accent == "Orange" ? dark ? "#FFFFB36A" : "#FF8A42" : pref.Accent == "Windows" ? Desktop.Accent : dark ? "#68D9FF" : "#1683E8");
         var background = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
-        background.GradientStops.Add(new GradientStop(C(dark ? "#D1294566" : "#D9FFFFFF"), 0));
-        background.GradientStops.Add(new GradientStop(C(dark ? "#C31C2B43" : "#CDEAF2FA"), .48));
-        background.GradientStops.Add(new GradientStop(C(dark ? "#D1141D31" : "#D7E3EDF6"), 1));
-        background.Freeze();
-        Background = background; Foreground = foreground; root.Background = background;
+        background.GradientStops.Add(new GradientStop(C(dark ? "#7C294566" : "#88FFFFFF"), 0));
+        background.GradientStops.Add(new GradientStop(C(dark ? "#741C2B43" : "#78EAF2FA"), .48));
+        background.GradientStops.Add(new GradientStop(C(dark ? "#80141D31" : "#82E3EDF6"), 1));
+        background.Freeze(); glassFallback = background;
+        Background = Brushes.Transparent; windowRoot.Background = glassBackdrop.Source == null ? background : Brushes.Transparent; root.Background = Brushes.Transparent;
         headerGlass.Background = glassPanel; headerGlass.BorderBrush = border;
         sidebarGlass.Background = glassPanel; sidebarGlass.BorderBrush = border;
         footerGlass.Background = glassPanel; footerGlass.BorderBrush = border;
@@ -237,8 +254,49 @@ public sealed class MainWindow : Window
         checkStyle.Setters.Add(new Setter(Control.ForegroundProperty, foreground));
         checkStyle.Setters.Add(new Setter(Control.VerticalContentAlignmentProperty, VerticalAlignment.Center));
         Resources[typeof(CheckBox)] = checkStyle;
-        Desktop.WindowTheme(this, dark, expanded);
+        Desktop.WindowTheme(this, dark, expanded && glassBackdrop.Source == null);
+        if (glassBackdrop.Source != null) ScheduleGlassRefresh();
         if (IsLoaded) Render();
+    }
+    void ScheduleGlassRefresh()
+    {
+        if (App.TestRoot != null || !IsLoaded || !IsVisible) return;
+        glassRefresh.Stop(); glassRefresh.Start();
+    }
+    async Task RefreshGlassBackdrop()
+    {
+        if (App.TestRoot != null || glassCaptureInProgress || !IsVisible || handle == IntPtr.Zero || ActualWidth < 1 || ActualHeight < 1) return;
+        glassCaptureInProgress = true;
+        try
+        {
+            Point topLeft = PointToScreen(new Point(0, 0));
+            Point bottomRight = PointToScreen(new Point(ActualWidth, ActualHeight));
+            int x = (int)Math.Round(topLeft.X), y = (int)Math.Round(topLeft.Y);
+            int width = (int)Math.Round(bottomRight.X - topLeft.X), height = (int)Math.Round(bottomRight.Y - topLeft.Y);
+            if (width is < 80 or > 5000 || height is < 80 or > 5000) return;
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+            BitmapSource? snapshot = ScreenCaptureHelper.CaptureWindowRegion(handle, x, y, width, height);
+            if (snapshot == null) return;
+            glassEffect ??= new LiquidGlassEffect();
+            glassEffect.TextureSize = new Point(snapshot.PixelWidth, snapshot.PixelHeight);
+            glassEffect.GlassCenter = new Point(snapshot.PixelWidth / 2d, snapshot.PixelHeight / 2d);
+            glassEffect.GlassSize = new Point(snapshot.PixelWidth, snapshot.PixelHeight);
+            glassEffect.BlurIntensity = .3f;
+            glassBackdrop.Effect = glassEffect;
+            glassBackdrop.Source = snapshot;
+            glassBackdrop.Visibility = Visibility.Visible;
+            windowRoot.Background = Brushes.Transparent;
+            bool dark = pref.Theme == "Dark" || pref.Theme == "System" && Desktop.Dark;
+            Desktop.WindowTheme(this, dark, false);
+        }
+        catch
+        {
+            glassBackdrop.Source = null; glassBackdrop.Effect = null; glassBackdrop.Visibility = Visibility.Collapsed;
+            windowRoot.Background = glassFallback ?? Brushes.Transparent;
+            bool dark = pref.Theme == "Dark" || pref.Theme == "System" && Desktop.Dark;
+            Desktop.WindowTheme(this, dark, expanded);
+        }
+        finally { glassCaptureInProgress = false; }
     }
     void Render()
     {
@@ -451,7 +509,7 @@ public sealed class MainWindow : Window
         Topmost = false; changingMode = false;
         content.ColumnDefinitions[0].Width = new GridLength(expanded ? 210 : 0); sidebar.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed; expandButton.Content = expanded ? "Widget ↙" : "Expand ↗"; ModeChanged?.Invoke(); ApplyTheme();
         pinButton.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
-        Show(); if (expanded || desktopUnavailable) Activate(); SavePreferences();
+        Show(); if (expanded || desktopUnavailable) Activate(); SavePreferences(); ScheduleGlassRefresh();
     }
     void AttachToDesktop()
     {
@@ -614,6 +672,55 @@ public sealed class MainWindow : Window
     {
         var picker = new OpenFileDialog { Multiselect = true, Filter = images ? "Images|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff|All files|*.*" : "All files|*.*" }; if (picker.ShowDialog(ModalOwner) == true) await ImportFiles(picker.FileNames);
     }
+    static bool IsMarkdownFile(string file) => Path.GetExtension(file).ToLowerInvariant() is ".md" or ".markdown" or ".mdown";
+    async Task PickMarkdown()
+    {
+        var picker = new OpenFileDialog { Multiselect = true, Filter = "Markdown files|*.md;*.markdown;*.mdown|All files|*.*", Title = "Import AI output or Markdown notes" };
+        if (picker.ShowDialog(ModalOwner) == true) await ImportMarkdownFiles(picker.FileNames);
+    }
+    async Task ImportMarkdownFiles(string[] files)
+    {
+        if (busy) return;
+        busy = true;
+        try
+        {
+            var notes = new List<MarkdownNote>();
+            foreach (string file in files)
+            {
+                if (!File.Exists(file)) continue;
+                var info = new FileInfo(file);
+                if (info.Length > 20L * 1024 * 1024) throw new InvalidDataException($"{Path.GetFileName(file)} is larger than 20 MB.");
+                status.Text = "Reading Markdown…";
+                string content = await File.ReadAllTextAsync(file);
+                notes.Add(await Task.Run(() => MarkdownImport.Parse(file, content)));
+            }
+            if (notes.Count == 0) return;
+            if (!await Flush()) return;
+            Remember();
+            foreach (var note in notes)
+            {
+                var importedPage = new NotePage { Title = note.Title, Blocks = [] };
+                foreach (var section in note.Sections)
+                {
+                    var block = new Block
+                    {
+                        Kind = section.Kind,
+                        Text = section.Text,
+                        Items = section.Tasks ?? [],
+                        Width = section.Kind == "checklist" ? 360 : 480,
+                        Height = section.Kind == "checklist" ? 280 : 360
+                    };
+                    PlaceBlock(importedPage, block);
+                    importedPage.Blocks.Add(block);
+                }
+                store.Book.Pages.Add(importedPage);
+            }
+            page = store.Book.Pages[^1]; Changed(); Render(); SavePreferences();
+            status.Text = $"Imported {notes.Count} Markdown file{(notes.Count == 1 ? "" : "s")}";
+        }
+        catch (Exception ex) { MessageBox.Show(ModalOwner, ex.Message, "Markdown import failed"); }
+        finally { busy = false; }
+    }
     async Task PasteImage()
     {
         string temp = Path.Combine(Path.GetTempPath(), "WidgetNotes-" + Guid.NewGuid().ToString("N") + ".png");
@@ -642,7 +749,7 @@ public sealed class MainWindow : Window
     {
         var menu = new ContextMenu(); Menu(menu, "Notebooks…", ShowNotebookMenu); Menu(menu, "Rename notebook…", RenameNotebook); Menu(menu, "New page…", ShowNewPageMenu);
         Menu(menu, "Move page earlier", () => MovePage(-1)); Menu(menu, "Move page later", () => MovePage(1)); Menu(menu, "Delete page…", DeletePage); menu.Items.Add(new Separator());
-        Menu(menu, "Undo last change", Undo); Menu(menu, "Save / retry", async () => await Flush()); Menu(menu, "Export portable notebook…", ExportArchive); Menu(menu, "Open .wnote file…", async () => { var p = new OpenFileDialog { Filter = "WidgetNotes notebook|*.wnote" }; if (p.ShowDialog(ModalOwner) == true) await OpenArchive(p.FileName); });
+        Menu(menu, "Undo last change", Undo); Menu(menu, "Import AI / Markdown…", async () => await PickMarkdown()); Menu(menu, "Save / retry", async () => await Flush()); Menu(menu, "Export portable notebook…", ExportArchive); Menu(menu, "Open .wnote file…", async () => { var p = new OpenFileDialog { Filter = "WidgetNotes notebook|*.wnote" }; if (p.ShowDialog(ModalOwner) == true) await OpenArchive(p.FileName); });
         Menu(menu, "Export text…", ExportText); Menu(menu, "Print / Save as PDF…", Print); Menu(menu, "Open notebook folder", () => Desktop.Shell(store.Folder)); menu.Items.Add(new Separator());
         Menu(menu, "Settings…", Settings); Menu(menu, "Exit", async () => await ExitApp()); menu.IsOpen = true;
     }
@@ -859,6 +966,9 @@ public sealed class MainWindow : Window
         var results = new List<string>();
         try
         {
+            var shaderResource = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/WidgetNotes;component/Assets/GlassyEffect.ps", UriKind.Absolute));
+            if (shaderResource == null || shaderResource.Stream.Length < 1000) throw new Exception("Liquid-glass shader resource could not be loaded");
+            shaderResource.Stream.Dispose(); results.Add("PASS packaged liquid-glass shader resource loads");
             pref.ConfirmDelete = false; pref.ReducedMotion = true; page.Blocks[0].Items = Editing.Lines("Write ideas\nPlan tomorrow\nTake a break"); page.Blocks[0].Items[1].Done = true; Changed(); Render();
             await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle);
             Capture("widget-light.png"); results.Add("PASS widget renders task text boxes and checkboxes");
@@ -884,8 +994,13 @@ public sealed class MainWindow : Window
             search.Text = "Ideas"; UpdateLayout(); if (!Descendants<Button>(sidebar).Any(b => b.Content?.ToString()?.Contains("Ideas") == true)) throw new Exception("Search failed"); search.Clear(); results.Add("PASS search");
             string sample = Path.Combine(App.TestRoot!, "sample.png"); var drawing = new DrawingVisual(); using (var dc = drawing.RenderOpen()) { dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromRgb(0, 103, 192)), null, new Rect(0, 0, 400, 240), 16, 16); dc.DrawEllipse(Brushes.White, null, new Point(200, 120), 65, 65); } var sampleBitmap = new RenderTargetBitmap(400, 240, 96, 96, PixelFormats.Pbgra32); sampleBitmap.Render(drawing); var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(sampleBitmap)); using (var f = File.Create(sample)) png.Save(f);
             await ImportFiles([sample]); if (!page.Blocks.Any(b => b.Kind == "image" && File.Exists(Path.Combine(store.Folder, b.Media!)))) throw new Exception("Image import failed"); results.Add("PASS image import and display");
+            string markdown = Path.Combine(App.TestRoot!, "claude-export.md");
+            await File.WriteAllTextAsync(markdown, "---\ntitle: Release plan\nsource: Claude\n---\n# Release plan\n\n- [ ] Verify installer\n- [x] Update the widget\n\n```md\n- [ ] leave this as code\n```\n");
+            await ImportMarkdownFiles([markdown]);
+            if (page.Title != "Claude · Release plan" || page.Blocks.SelectMany(b => b.Items).Count() != 2 || page.Blocks.All(b => !b.Text.Contains("leave this as code"))) throw new Exception("Markdown agent import parsing");
+            results.Add("PASS agent Markdown import creates editable tasks and preserves fenced examples");
             await Task.Delay(250); await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle); Capture("workspace-light.png"); pref.Theme = "Dark"; pref.Accent = "Orange"; ApplyTheme(); await Task.Delay(250); await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle); Capture("workspace-dark.png"); Expand(false); Render(); await Dispatcher.InvokeAsync(() => {}, DispatcherPriority.ApplicationIdle); Capture("widget-dark.png");
-            if (!await Flush()) throw new Exception("Save failed"); var reopened = await NotebookStore.Open(store.Folder); if (reopened.Book.Pages.Count != 2) throw new Exception("Persistence failed"); results.Add("PASS shared document persistence");
+            if (!await Flush()) throw new Exception("Save failed"); var reopened = await NotebookStore.Open(store.Folder); if (reopened.Book.Pages.Count != 3) throw new Exception("Persistence failed"); results.Add("PASS shared document persistence");
             if (!SaveForSessionEnd()) throw new Exception("Session-end save failed"); results.Add("PASS synchronous session-end save");
             string roundtrip = Path.Combine(App.TestRoot!, "notebook.wnote"); await store.Export(roundtrip, Json.Write(store.Book)); var imported = await NotebookStore.Import(roundtrip, Path.Combine(App.TestRoot!, "roundtrip")); if (!imported.Book.Pages[0].Blocks.Any(b => b.Kind == "image" && File.Exists(Path.Combine(imported.Folder, b.Media!)))) throw new Exception("Image round trip failed"); results.Add("PASS portable notebook preserves rendered image");
             results.Add($"ReadyMs={ready:F0}");

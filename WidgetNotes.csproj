@@ -5,7 +5,7 @@
     <ImplicitUsings>disable</ImplicitUsings><Nullable>enable</Nullable>
     <AssemblyName>WidgetNotes</AssemblyName><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Assets\WidgetNotes.ico</ApplicationIcon>
     <PublishSingleFile>true</PublishSingleFile><SelfContained>true</SelfContained>
-    <Version>1.5.0</Version>
+    <Version>1.5.1</Version>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <PublishTrimmed>false</PublishTrimmed><DebugType>embedded</DebugType>
   </PropertyGroup>

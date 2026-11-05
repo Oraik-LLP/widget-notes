@@ -1,37 +1,39 @@
-WidgetNotes 1.5.0 — Windows x64 verification
+WidgetNotes 1.5.1 — Windows x64 verification
 
-CHANGES
-- Widget only: no full application workspace, canvas, maximize action, or taskbar button.
-- Native Windows Acrylic through WPF UI 4.3.0 FluentWindow replaces the manual glass setup. No desktop screenshots are used by the renderer.
-- WM_ENTERSIZEMOVE pauses the material onto a soft solid surface; WM_EXITSIZEMOVE restores Acrylic. Lock blocks moving and resizing.
-- Fixed missing native window hooks when the UI library initialized the HWND before SourceInitialized was subscribed. Initialization now also runs against an existing handle and on Loaded.
-- Fixed the reproduced closing exception by deferring save/hide until the native Closing event finishes. Close hides to the tray; menu Exit saves and exits.
-- Cards grow with their content inside one vertical scroll area. Removed fixed canvas/card sizing and horizontal scrolling.
-- Rounded menus and dialogs share the same styles. Settings applies its backdrop on Loaded, preserves visible Save/Cancel actions, and uses full-width dropdown frames without the inherited ToggleButton styling defect.
-- Compact page search, images, attachments, local AI Markdown imports, notebook export, and startup remain available.
-- Installer uses Windows Restart Manager for graceful save/shutdown, retains data, installs notices, and repairs shortcuts to older copies.
+REPAIR
+- Native Acrylic remains visible while the widget is unfocused. The window's compositor appearance and non-client activation appearance are maintained without taking keyboard focus from another app.
+- During native move/resize, the blur is disabled and replaced with a soft opaque surface. Content dimensions are held fixed, and autosave scheduling pauses for the gesture.
+- The window frame is preserved during pause/resume. The prior WindowBackdropType change rebuilt WindowChrome inside the system gesture loop.
+- On release, content reflows once; the native material resumes after a 140 ms settling interval. Preferences are saved afterward rather than during the gesture.
+- Composition-change notifications cannot reactivate the blur while a gesture is paused.
+- Normal launches remain widget-only, with no taskbar button or application workspace. Startup, tray access, imports, and notebook storage are retained.
 
-CHECKS
-- Release build succeeded with .NET SDK 10.0.402 and bundled runtime 10.0.13, without build warnings or errors.
-- 25 storage/parser checks passed: dist/widget-storage-final-v150/self-test.txt.
-- 16 WPF interaction checks passed: dist/widget-ui-polished-v150/ui-test.txt. Covers edits, completion/undo, task input/paste, tray entrypoint, growing cards, page search, image/Markdown imports, menus/settings/dropdowns in both themes, persistence, session-end save, and portable images.
-- UI diagnostic ready: 1196 ms; task edit through render: 3.0 ms in this run. These are local samples, not frame-cadence guarantees.
-- 6 widget/lifecycle checks passed: dist/widget-native-wiring-v150/desktop-test.txt. Pause/resume uses real SendMessage delivery through the installed HWND hook, rather than calling the handler directly. Both clean and dirty native close paths save/hide without reentrant Close.
-- Installer WhatIf completed. Installed EXE hash matches the release EXE. Desktop/Start menu shortcuts and HKCU launch-at-sign-in target the installed executable.
-- Running installed state: version 1.5.0.0; Renderer WPF UI Desktop Acrylic; BackdropType 3; NativeBackdrop true; NativeHooked true; nonzero native handle; TopLevel true; Taskbar false; Mode Widget; MaterialPaused false; ShortcutRegistered true; Ctrl+Alt+N.
-- Identified legacy portable executable was also replaced with 1.5. Its previous EXE is preserved as WidgetNotes.exe.before-v150.
-- Preferences and notebook JSON backups are retained in LocalAppData/WidgetNotes/UpdateBackups. Existing notebook data was retained.
+VERIFICATION
+- Release build succeeded using SDK 10.0.402 and bundled .NET runtime 10.0.13. NU1900 was reported because NuGet vulnerability data was unreachable; cached dependencies restored and compiled successfully.
+- All diagnostics below ran under the signed-in Windows user, using isolated test roots.
+- 25 storage/parser checks passed: dist/storage-release-v151/self-test.txt.
+- 6 widget/lifecycle checks passed: dist/widget-release-v151/desktop-test.txt. Real native messages verify paused material state, fixed content dimensions during resize, one reflow after release, and unchanged WindowChrome identity. Clean/dirty Close saves and hides correctly.
+- 16 UI checks passed: dist/ui-release-v151/ui-test.txt. Covers edits, completion/undo, task entry/paste, growing cards, tray entrypoint, search, images, Markdown, menus/settings/dropdowns in both themes, persistence, session-end save, and notebook archives.
+- Final UI sample: ready 705 ms; edit through render 4.0 ms. These are local samples, not frame-cadence guarantees.
+- Visible compositor verification used an animated color backdrop. The non-client correction was visually checked with Active false, KeptActive true, and Backdrop 3: background colors remained visible and updated through the frosted surface, including after pause/resume. Evidence state: dist/material-nc-v151/material-state.json.
+- The final paused surface was visually checked with Active false, KeptActive false, Backdrop 1, and opaque background #FF1D2A3B. Final restored native state: dist/material-release-v151/material-state.json.
+- The rejected older accent route rendered black on this machine and is not part of this release.
+- Installer WhatIf and git diff validation completed.
+- Installed executable hash matches the release. Fresh runtime report: version 1.5.1.0; MaterialKeptActive true; Mode Widget; Taskbar false; NativeHooked true; Ctrl+Alt+N registered. HKCU startup points to the installed EXE with --startup.
+- Installer preserves notebooks/preferences, repairs shortcuts, enables launch at sign-in, and replaces the identified legacy portable copy. Update backups remain in LocalAppData/WidgetNotes/UpdateBackups.
 
 ARTIFACTS
 - App: dist/package/WidgetNotes.exe
 - Installer: dist/package/Install.cmd
-- ZIP: dist/WidgetNotes-1.5.0-Windows-x64.zip
-- EXE SHA-256: D75F4C47E46C82AA3D95B566864F536FE08CF37527CEB577E1050B378EF9915B
-- ZIP SHA-256: 8997DEEF3AA58481125F78BC570F09F09654632F66E33F22BA744F1BD9FD96F2
+- ZIP: dist/WidgetNotes-1.5.1-Windows-x64.zip
+- EXE SHA-256: C1A3632BBEF78E5029BB953CE598B392B1CBDBFF0BD4928286A9ECA0F6BBC582
+- ZIP SHA-256: A2954194951B05C24B9B853B09D26B901297D6E4990566AC5A543969B8223DE4
 
 LIMITS
-- WPF screenshots were visually checked for layout and menu/dialog styling. RenderTargetBitmap does not capture the desktop compositor material. Live desktop pixels and motion cadence were not visually verified; native-message tests verify event wiring and material state transitions.
-- Windows desktop Acrylic is used; this is not the React liquid-glass refraction shader. System performance/accessibility policy can simplify transparency.
-- AI import reads selected or dropped local Markdown files; it does not connect to GPT, Claude, Gemini, or other accounts automatically.
-- Startup registration was checked directly; a sign-out/sign-in cycle was not performed.
-- The app is unsigned. No remote Git repository is configured; the local release and GitHub Actions workflow do not constitute a hosted GitHub release.
+- The visual diagnostic uses native gesture messages; continuous physical drag frame cadence was not measured. Tests verify that expensive blur, repeated content reflow, and window-frame recreation are removed from the gesture path.
+- This is native Windows frosted Acrylic, not the React liquid-glass refraction shader. The persistent appearance attribute is a native compatibility interface and was verified on this Windows installation.
+- The color backdrop, extra windows, animation timer, and taskbar presence exist only for --material-preview with an isolated --test-root. They are absent from ordinary launches.
+- The abandoned separate GlassLab diagnostic failed in the restricted execution account. It was stopped and is not shipped in the installer.
+- AI import reads selected/dropped local Markdown files; it does not connect to AI accounts automatically.
+- Startup registration is checked directly; no sign-out/sign-in cycle was performed.
+- The executable is unsigned. No Git remote is configured; the release tag is local and has not published a hosted GitHub release.

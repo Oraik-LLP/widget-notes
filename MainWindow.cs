@@ -21,6 +21,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
     readonly Preferences pref;
     NotePage page;
     readonly DispatcherTimer autosave = new() { Interval = TimeSpan.FromMilliseconds(550) };
+    readonly DispatcherTimer resumeMaterial = new() { Interval = TimeSpan.FromMilliseconds(140) };
     readonly Stack<string> undo = new();
     readonly TextBlock status = new() { FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
     readonly TextBlock counter = new() { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
@@ -55,7 +56,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
         Title = "WidgetNotes"; Icon = AppArtwork.WindowIcon; FontFamily = new FontFamily("Segoe UI Variable, Segoe UI"); FontSize = 13;
         MinWidth = 360; MinHeight = 400; MaxWidth = 900; MaxHeight = 1000; Width = Math.Clamp(pref.Width, 360, 900); Height = Math.Clamp(pref.Height, 400, 1000);
         Left = double.IsFinite(pref.Left) ? pref.Left : 60; Top = double.IsFinite(pref.Top) ? pref.Top : 60;
-        ClampPosition(); Topmost = false; ShowInTaskbar = false; ShowActivated = !App.Arguments.Contains("--startup"); NativeGlass.Configure(this);
+        ClampPosition(); Topmost = false; ShowInTaskbar = MaterialDiagnostics.Enabled; ShowActivated = !App.Arguments.Contains("--startup"); NativeGlass.Configure(this);
         Content = windowRoot; shellFrame.Child = root; windowRoot.Children.Add(shellFrame); root.Margin = new Thickness(3);
         AllowDrop = true; root.SnapsToDevicePixels = true; root.UseLayoutRounding = true;
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -103,6 +104,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
         footerGlass = new Border { Margin = new Thickness(11, 7, 11, 10), Padding = new Thickness(8, 3, 8, 3), CornerRadius = new CornerRadius(15), BorderThickness = new Thickness(1), Child = footer };
         Grid.SetRow(footerGlass, 2); root.Children.Add(footerGlass);
         autosave.Tick += async (_, _) => { autosave.Stop(); await Flush(); };
+        resumeMaterial.Tick += (_, _) => { resumeMaterial.Stop(); if (exiting) return; materialPaused = false; nativeBackdrop = NativeGlass.Apply(this, IsDark); SavePreferences(); WriteRuntimeReport(); };
         AutomationProperties.SetName(title, "Page title");
         PreviewKeyDown += OnKeys;
         Drop += async (_, e) =>
@@ -119,7 +121,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
         Closing += OnClosing;
         SourceInitialized += (_, _) => { InitializeNativeWindow(); ApplyTheme(); };
         Loaded += (_, _) => { InitializeNativeWindow(); nativeBackdrop = NativeGlass.Apply(this, IsDark); WriteRuntimeReport(); };
-        Closed += (_, _) => autosave.Stop();
+        Closed += (_, _) => { autosave.Stop(); resumeMaterial.Stop(); };
         Activated += (_, _) => ApplyTheme();
         LocationChanged += (_, _) => { if (IsVisible) CaptureWindowBounds(); };
         SizeChanged += (_, _) => { if (IsVisible) CaptureWindowBounds(); };
@@ -339,7 +341,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
         try
         {
             var report = new { Version = typeof(App).Assembly.GetName().Version?.ToString(), ProcessId = Environment.ProcessId, Path = Environment.ProcessPath,
-                Renderer = "WPF UI Desktop Acrylic", BackdropType = NativeGlass.Backdrop(this), NativeBackdrop = nativeBackdrop,
+                Renderer = "Desktop Acrylic · persistent widget glass", BackdropType = NativeGlass.Backdrop(this), NativeBackdrop = nativeBackdrop, MaterialKeptActive = NativeGlass.KeepsActive(this),
                 TopLevel = NativeGlass.IsTopLevel(this), Taskbar = ShowInTaskbar, Mode = "Widget", NativeHooked = nativeHooked, NativeHandle = handle.ToInt64(), MaterialPaused = materialPaused, ShortcutRegistered = shortcutRegistered, Shortcut = pref.Shortcut, LastShortcutError = lastShortcutError };
             File.WriteAllText(Path.ChangeExtension(App.ActualSettingsFile, ".runtime.json"), Json.Write(report));
         }
@@ -419,10 +421,22 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (msg == 0x312 && wParam.ToInt32() == 1) { ToggleVisibility(); handled = true; }
         if (msg == 0x112 && (wParam.ToInt64() & 0xfff0) == 0xf030) { handled = true; return IntPtr.Zero; }
         if (msg == 0x112 && pref.LockWidget && (wParam.ToInt64() & 0xfff0) is 0xf010 or 0xf000) { handled = true; return IntPtr.Zero; }
-        if (msg == 0x231) { materialPaused = true; NativeGlass.Pause(this, IsDark); WriteRuntimeReport(); }
-        if (msg == 0x232) { materialPaused = false; nativeBackdrop = NativeGlass.Apply(this, IsDark); SavePreferences(); WriteRuntimeReport(); }
+        if (msg == 0x231)
+        {
+            resumeMaterial.Stop(); autosave.Stop(); materialPaused = true;
+            windowRoot.Width = windowRoot.ActualWidth; windowRoot.Height = windowRoot.ActualHeight;
+            windowRoot.HorizontalAlignment = HorizontalAlignment.Left; windowRoot.VerticalAlignment = VerticalAlignment.Top;
+            NativeGlass.Pause(this, IsDark);
+        }
+        if (msg == 0x232)
+        {
+            windowRoot.Width = double.NaN; windowRoot.Height = double.NaN;
+            windowRoot.HorizontalAlignment = HorizontalAlignment.Stretch; windowRoot.VerticalAlignment = VerticalAlignment.Stretch;
+            if (dirty) autosave.Start();
+            resumeMaterial.Stop(); resumeMaterial.Start();
+        }
         if (msg == 0x7e) Dispatcher.BeginInvoke(ClampPosition);
-        if (msg == 0x31e) Dispatcher.BeginInvoke(() => nativeBackdrop = NativeGlass.Apply(this, IsDark));
+        if (msg == 0x31e) Dispatcher.BeginInvoke(() => { if (!materialPaused) nativeBackdrop = NativeGlass.Apply(this, IsDark); });
         if (msg is 0x31a or 0x1a) Dispatcher.BeginInvoke(ApplyTheme);
         return IntPtr.Zero;
     }
@@ -727,7 +741,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
         settingsActions.Children.Add(Btn("Cancel", () => d.Close())); settingsActions.Children.Add(save);
         var settingsFooter = new Border { Background = glassPanel, BorderBrush = border, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(16, 8, 16, 12), Child = settingsActions };
         Grid.SetRow(settingsFooter, 1); settingsLayout.Children.Add(settingsFooter);
-        panel.Children.Add(new TextBlock { Text = "WidgetNotes 1.5 · Desktop widget\nCtrl+N new page  ·  Ctrl+F search  ·  Ctrl+S save\nCtrl+Z undo  ·  Close hides to tray", Foreground = muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, FontSize = 11 });
+        panel.Children.Add(new TextBlock { Text = "WidgetNotes 1.5.1 · Desktop widget\nCtrl+N new page  ·  Ctrl+F search  ·  Ctrl+S save\nCtrl+Z undo  ·  Close hides to tray", Foreground = muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, FontSize = 11 });
         if (diagnostic)
         {
             d.ContentRendered += async (_, _) =>
@@ -770,11 +784,19 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
             if (Descendants<Button>(root).Any(b => b.Content?.ToString() is "Workspace" or "Canvas" or "Compact")) throw new Exception("Application workspace controls must not be exposed");
             log.Add("PASS full application and canvas controls are absent");
             if (!nativeHooked || handle == IntPtr.Zero) throw new Exception("Native window events are not connected");
+            var chrome = System.Windows.Shell.WindowChrome.GetWindowChrome(this);
             NativeGlass.SendTestMessage(this, 0x231);
-            if (!materialPaused || NativeGlass.Backdrop(this) != 1) throw new Exception("Material was not paused for movement");
+            if (!materialPaused || NativeGlass.Backdrop(this) != 1 || NativeGlass.KeepsActive(this)) throw new Exception("Material was not paused for movement");
+            if (!ReferenceEquals(chrome, System.Windows.Shell.WindowChrome.GetWindowChrome(this))) throw new Exception("Move/resize rebuilt the native window frame");
+            double heldWidth = windowRoot.ActualWidth, originalWidth = Width;
+            Width += 40; UpdateLayout();
+            if (Math.Abs(windowRoot.ActualWidth - heldWidth) > 1) throw new Exception("Content layout was not held during resizing");
             NativeGlass.SendTestMessage(this, 0x232);
-            if (materialPaused || NativeGlass.Backdrop(this) != 3) throw new Exception("Material did not resume after movement");
-            log.Add("PASS glass pauses for move/resize and resumes when the gesture finishes");
+            await Task.Delay(250); UpdateLayout();
+            if (materialPaused || NativeGlass.Backdrop(this) != 3 || !NativeGlass.KeepsActive(this)) throw new Exception("Material did not resume after movement");
+            if (!ReferenceEquals(chrome, System.Windows.Shell.WindowChrome.GetWindowChrome(this))) throw new Exception("Resuming rebuilt the native window frame");
+            if (Math.Abs(windowRoot.ActualWidth - heldWidth) < 20) throw new Exception("Content did not reflow after resizing"); Width = originalWidth;
+            log.Add("PASS glass and content layout pause throughout resizing and resume after release");
             pref.LockWidget = true; bool handled = false; WndProc(handle, 0x112, new IntPtr(0xf010), IntPtr.Zero, ref handled);
             if (!handled) throw new Exception("Position lock did not block movement"); pref.LockWidget = false;
             log.Add("PASS widget position lock blocks native move commands");

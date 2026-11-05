@@ -1,6 +1,6 @@
 # WidgetNotes
 
-WidgetNotes 1.5 is a compact Windows desktop widget for checklists, notes, images, and saved AI output. It has no separate application workspace, canvas, or taskbar button. Use its tray icon or configured shortcut to show or hide it.
+WidgetNotes 1.5.1 is a compact Windows desktop widget for checklists, notes, images, and saved AI output. It has no separate application workspace, canvas, or taskbar button. Use its tray icon or configured shortcut to show or hide it.
 
 ## Install
 
@@ -10,11 +10,11 @@ Existing WidgetNotes shortcuts on the Desktop, Start menu, taskbar, and Startup 
 
 ## Move, resize, and glass
 
-Drag the title area to move the widget and drag its edges to resize it. During either gesture, the live glass is suspended and replaced by a soft solid surface. The live desktop material returns when the gesture finishes. No desktop screenshots are used by the renderer.
+Drag the title area to move the widget and drag its edges to resize it. During either gesture, the live glass is suspended and replaced by a soft solid surface. Content layout is held fixed until release, then reflows once. The material returns after a short 140 ms settling interval, without rebuilding the window frame. No desktop screenshots are used by the renderer.
 
 The **Lock** button prevents accidental movement and resizing. The widget stays compact and cannot be maximized. Closing it hides it to the tray; **menu → Exit** saves and exits.
 
-The glass integration uses the MIT-licensed [WPF UI FluentWindow](https://github.com/lepoco/wpfui) with the Windows desktop Acrylic backdrop. WPF UI licenses and notices are included in the installer and installed program folder. Windows can simplify transparency according to system performance and accessibility settings.
+The glass integration uses the MIT-licensed [WPF UI FluentWindow](https://github.com/lepoco/wpfui) with the Windows desktop Acrylic backdrop. WidgetNotes keeps its own material appearance active while another app has keyboard focus, preventing the opaque inactive-window fallback. This does not take focus from that app. WPF UI licenses and notices are included in the installer and installed program folder. Windows can simplify transparency according to system performance and accessibility settings.
 
 ## Notes and pages
 
@@ -34,6 +34,8 @@ Keyboard shortcuts: Ctrl+N new page, Ctrl+F find a page, Ctrl+S save, Ctrl+Z und
 Requires Windows x64 and the .NET 10 SDK. Run `./build.ps1`; a local SDK in `.tools/dotnet-sdk` is also recognized. The script regenerates the multi-size icon and publishes a self-contained EXE and ZIP under `dist`.
 
 Use `--test-root=...` with `--self-test`, `--ui-test`, `--application-test`, or `--benchmark` to run isolated diagnostics. UI checks exercise task controls, Markdown import, automatic card height, page search, menus, settings, and dropdowns. Widget checks cover taskbar suppression, absence of application/canvas controls, gesture pause/resume, and position locking. Run GUI diagnostics with PowerShell `Start-Process -Wait -PassThru` and inspect their text reports.
+
+For compositor verification, `--material-preview --test-root=...` temporarily shows an animated color backdrop and an isolated widget with taskbar presence. It moves focus to another diagnostic window and cycles through pause/resume without opening the user's notebooks. Run visual diagnostics under the signed-in Windows user; the restricted execution account cannot provide a reliable interactive desktop.
 
 The GitHub Actions workflow builds Windows x64, runs diagnostics, uploads the ZIP, and publishes a release when a `v*` tag is pushed. No Git remote is configured in this workspace, so local tags have not published a hosted release.
 

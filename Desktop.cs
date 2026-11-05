@@ -112,6 +112,7 @@ public sealed class App : System.Windows.Application
                 string inbox = ActualSettingsFile + ".open";
                 if (File.Exists(inbox)) { string path = await File.ReadAllTextAsync(inbox); File.Delete(inbox); await active.OpenArchive(path); }
             }); });
+            MaterialDiagnostics.Start(window);
             window.Show();
             if (warning != null) MessageBox.Show(window, warning, "Notebook recovery");
             else if (store.Recovered) MessageBox.Show(window, "Recovered this notebook from its last good backup. The damaged file was preserved beside it.", "Notebook recovered");

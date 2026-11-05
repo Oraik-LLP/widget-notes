@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -11,6 +12,9 @@ namespace WidgetNotes;
 internal static class NativeGlass
 {
     static bool resourcesReady;
+    sealed class MaterialState { public bool KeptActive; public bool Paused; }
+    static readonly ConditionalWeakTable<Window, MaterialState> States = new();
+    public static bool KeepsActive(Window window) => States.TryGetValue(window, out var state) && state.KeptActive;
     public static void EnsureResources(bool dark)
     {
         if (resourcesReady) return;
@@ -31,33 +35,61 @@ internal static class NativeGlass
         {
             if (WindowChrome.GetWindowChrome(window) is { } chrome) chrome.CaptionHeight = 54;
         };
+        window.Deactivated += (_, _) => window.Dispatcher.BeginInvoke(() =>
+        {
+            if (States.TryGetValue(window, out var state) && state.KeptActive && !state.Paused) KeepActive(window, true);
+        });
     }
 
     public static bool Apply(Window window, bool dark)
     {
+        States.GetOrCreateValue(window).Paused = false;
         EnsureResources(dark);
         var theme = dark ? ApplicationTheme.Dark : ApplicationTheme.Light;
         if (ApplicationThemeManager.GetAppTheme() != theme) ApplicationThemeManager.Apply(theme, WindowBackdropType.Acrylic, false);
         if (window is FluentWindow fluent && fluent.WindowBackdropType != WindowBackdropType.Acrylic) fluent.WindowBackdropType = WindowBackdropType.Acrylic;
         if (SystemParameters.HighContrast || !WindowBackdrop.IsSupported(WindowBackdropType.Acrylic))
         {
+            KeepActive(window, false);
             WindowBackdrop.RemoveBackdrop(window);
             window.Background = new SolidColorBrush(dark ? Color.FromRgb(25, 35, 50) : Color.FromRgb(240, 245, 251));
             return false;
         }
-        WindowBackdrop.RemoveBackground(window);
         bool enabled = WindowBackdrop.ApplyBackdrop(window, WindowBackdropType.Acrylic);
-        WindowBackdrop.RemoveTitlebarBackground(window);
+        if (enabled) { WindowBackdrop.RemoveBackground(window); WindowBackdrop.RemoveTitlebarBackground(window); }
+        // A desktop widget spends most of its life unfocused. Keep this window's
+        // compositor appearance active without taking keyboard focus from other apps.
+        KeepActive(window, enabled);
         if (WindowChrome.GetWindowChrome(window) is { } chrome) chrome.CaptionHeight = 54;
         return enabled;
     }
 
     public static void Pause(Window window, bool dark)
     {
-        if (window is FluentWindow fluent) fluent.WindowBackdropType = WindowBackdropType.None;
-        WindowBackdrop.RemoveBackdrop(window);
-        window.Background = new SolidColorBrush(dark ? Color.FromRgb(29, 42, 59) : Color.FromRgb(235, 242, 250));
-        if (WindowChrome.GetWindowChrome(window) is { } chrome) chrome.CaptionHeight = 54;
+        States.GetOrCreateValue(window).Paused = true;
+        // Keep FluentWindow's chrome intact throughout the system move/size loop.
+        // Changing WindowBackdropType rebuilds WindowChrome and stalls that loop.
+        var color = dark ? Color.FromRgb(29, 42, 59) : Color.FromRgb(235, 242, 250);
+        window.Background = new SolidColorBrush(color);
+        if (HwndSource.FromHwnd(new WindowInteropHelper(window).Handle)?.CompositionTarget is { } target) target.BackgroundColor = color;
+        KeepActive(window, false);
+        int none = 1;
+        _ = DwmSetWindowAttribute(new WindowInteropHelper(window).Handle, 38, ref none, sizeof(int));
+    }
+
+    static void KeepActive(Window window, bool enabled)
+    {
+        IntPtr value = Marshal.AllocHGlobal(sizeof(int));
+        try
+        {
+            Marshal.WriteInt32(value, enabled ? 1 : 0);
+            var data = new CompositionData { Attribute = 15, Pointer = value, Size = sizeof(int) }; // WCA_FORCE_ACTIVEWINDOW_APPEARANCE
+            bool accepted = SetWindowCompositionAttribute(new WindowInteropHelper(window).Handle, ref data) != 0;
+            States.GetOrCreateValue(window).KeptActive = enabled && accepted;
+            if (enabled && !window.IsActive) _ = DefWindowProc(new WindowInteropHelper(window).Handle, 0x86, new IntPtr(1), new IntPtr(-1));
+        }
+        catch (EntryPointNotFoundException) { States.GetOrCreateValue(window).KeptActive = false; }
+        finally { Marshal.FreeHGlobal(value); }
     }
 
     public static int Backdrop(Window window)
@@ -76,6 +108,10 @@ internal static class NativeGlass
         _ = SendMessage(new WindowInteropHelper(window).Handle, message, IntPtr.Zero, IntPtr.Zero);
     }
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+    [StructLayout(LayoutKind.Sequential)] struct CompositionData { public int Attribute; public IntPtr Pointer; public nuint Size; }
+    [DllImport("user32.dll", SetLastError = true)] static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref CompositionData data);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr DefWindowProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
+    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
     [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 }

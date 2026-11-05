@@ -35,7 +35,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Icon build failed.' }
 
 & $DotNetPath restore $project --configfile $nugetConfig --runtime win-x64
 if ($LASTEXITCODE -ne 0) { throw 'WidgetNotes restore failed.' }
-& $DotNetPath publish $project -c Release -r win-x64 --self-contained true --no-restore -o $publishRoot -p:Version=1.5.0
+& $DotNetPath publish $project -c Release -r win-x64 --self-contained true --no-restore -o $publishRoot -p:Version=1.5.1
 if ($LASTEXITCODE -ne 0) { throw 'WidgetNotes publish failed.' }
 
 foreach ($legacy in @('ThirdPartyNotices.txt', 'ThirdParty\WPF-Liquid-Glass-Effect-MIT.txt')) {

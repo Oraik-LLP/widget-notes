@@ -1,42 +1,31 @@
-# WidgetNotes
+# tagme
 
-WidgetNotes 1.5.1 is a compact Windows desktop widget for checklists, notes, images, and saved AI output. It has no separate application workspace, canvas, or taskbar button. Use its tray icon or configured shortcut to show or hide it.
+![tagme icon](Assets/tagmeIcon.png)
+
+A compact Windows desktop widget for notes, checklists, images, attachments, and saved AI Markdown. Pale yellow frosted glass, rounded controls, and an unobtrusive tray presence.
 
 ## Install
 
-Extract `WidgetNotes-Windows-x64.zip` and double-click `Install.cmd`. Setup installs for the current Windows user, creates Desktop and Start menu shortcuts, registers `.wnote` files and an uninstaller, enables launch at sign-in, and opens the widget. No separately installed .NET runtime is needed.
+Extract `tagme-Windows-x64.zip` and run `Install.cmd`. Per-user setup creates shortcuts, registers notebook files and an uninstaller, and enables launch at sign-in. The self-contained app needs no separately installed .NET runtime.
 
-Existing WidgetNotes shortcuts on the Desktop, Start menu, taskbar, and Startup folder are repaired if they target an older executable. The installer keeps notebook data and preferences. Use Installed apps or `Uninstall.ps1` to remove the program.
+Upgrading from WidgetNotes keeps existing notebooks and preferences in `Documents/WidgetNotes` and `%LOCALAPPDATA%/WidgetNotes`. These internal storage names are retained for compatibility. Setup replaces the startup registration and retargets existing shortcuts.
 
-## Move, resize, and glass
+## Use
 
-Drag the title area to move the widget and drag its edges to resize it. During either gesture, the live glass is suspended and replaced by a soft solid surface. Content layout is held fixed until release, then reflows once. The material returns after a short 140 ms settling interval, without rebuilding the window frame. No desktop screenshots are used by the renderer.
+Ctrl+Alt+N shows or hides the widget. Add lists, notes, images or attachments from the toolbar. Import or drop local Markdown exported from GPT, Claude, Gemini, Antigravity or other agents. Markdown checkboxes become editable tasks. This imports local files; it does not connect to AI accounts.
 
-The **Lock** button prevents accidental movement and resizing. The widget stays compact and cannot be maximized. Closing it hides it to the tray; **menu → Exit** saves and exits.
+Drag the header to move and the edges to resize. Blur and content layout pause during the gesture, then restore after release. Lock prevents accidental movement. Closing hides to the tray; the menu's Exit saves and quits.
 
-The glass integration uses the MIT-licensed [WPF UI FluentWindow](https://github.com/lepoco/wpfui) with the Windows desktop Acrylic backdrop. WidgetNotes keeps its own material appearance active while another app has keyboard focus, preventing the opaque inactive-window fallback. This does not take focus from that app. WPF UI licenses and notices are included in the installer and installed program folder. Windows can simplify transparency according to system performance and accessibility settings.
+## Brand
 
-## Notes and pages
+The chosen mark is a butter-yellow frosted sticky note with an amber folded corner and two ivory note strokes. Palette: butter `#F6D96B`, cream `#FFF6CE`, amber `#DBA93A`. Alternatives: a rounded glass tag, or a folded ribbon forming a lowercase t. Use the sticky-note mark for the app icon and lowercase `tagme` for the wordmark.
 
-- Add lists, notes, images, and attachments from the widget toolbar. Cards grow with their contents; the widget has a single vertical scrolling area.
-- Navigate pages with the footer arrows. Use **menu → Find page…** or Ctrl+F to search notes in a compact dialog.
-- Open **menu → Notebooks…** to switch or create notebooks.
-- Use **Import Markdown** or drop `.md`, `.markdown`, or `.mdown` files. Saved/exported output from GPT, Claude, Gemini, Antigravity, Codex, and other agents becomes editable pages. Markdown checkboxes become tasks; fenced examples remain text. Import reads selected local files.
-- Export portable `.wnote` notebooks or text, print, and save as PDF from the notebook menu.
-- **Settings** controls theme, accent, launch at sign-in, shortcut, confirmations, and notebook location. Save and Cancel stay visible while scrolling.
+## Build
 
-Notebooks default to `Documents\WidgetNotes`. Preferences are in `%LOCALAPPDATA%\WidgetNotes\settings.json`; `settings.runtime.json` records the running version and renderer for troubleshooting. Program updates retain notebook data.
+Run `./build.ps1` with .NET 10 SDK on Windows x64. The output is `dist/package/tagme.exe` and `dist/tagme-Windows-x64.zip`. The build creates a multi-size ICO from the supplied PNG.
 
-Keyboard shortcuts: Ctrl+N new page, Ctrl+F find a page, Ctrl+S save, Ctrl+Z undo, Ctrl+PageUp/PageDown navigate. The default global show/hide shortcut is Ctrl+Alt+N. If Windows reports that it is already assigned, startup uses Ctrl+Alt+Shift+N and saves that choice in Settings.
+Diagnostics: `--self-test`, `--ui-test`, or `--application-test` with a separate `--test-root=...`. Run desktop diagnostics under an interactive signed-in Windows user. `--material-preview` with an isolated test root verifies the compositor against a temporary animated backdrop.
 
-## Build and diagnostics
+Native Acrylic uses [WPF UI](https://github.com/lepoco/wpfui); its MIT licenses and dependency notices are included. The glass appearance is maintained while unfocused; movement suspends it without rebuilding the window frame. This is Windows frosted Acrylic, not a React refraction shader.
 
-Requires Windows x64 and the .NET 10 SDK. Run `./build.ps1`; a local SDK in `.tools/dotnet-sdk` is also recognized. The script regenerates the multi-size icon and publishes a self-contained EXE and ZIP under `dist`.
-
-Use `--test-root=...` with `--self-test`, `--ui-test`, `--application-test`, or `--benchmark` to run isolated diagnostics. UI checks exercise task controls, Markdown import, automatic card height, page search, menus, settings, and dropdowns. Widget checks cover taskbar suppression, absence of application/canvas controls, gesture pause/resume, and position locking. Run GUI diagnostics with PowerShell `Start-Process -Wait -PassThru` and inspect their text reports.
-
-For compositor verification, `--material-preview --test-root=...` temporarily shows an animated color backdrop and an isolated widget with taskbar presence. It moves focus to another diagnostic window and cycles through pause/resume without opening the user's notebooks. Run visual diagnostics under the signed-in Windows user; the restricted execution account cannot provide a reliable interactive desktop.
-
-The GitHub Actions workflow builds Windows x64, runs diagnostics, uploads the ZIP, and publishes a release when a `v*` tag is pushed. No Git remote is configured in this workspace, so local tags have not published a hosted release.
-
-The application is unsigned; Windows may display an unknown-publisher prompt.
+GitHub Actions builds, checks and packages Windows releases. Push a version tag to publish the ZIP. The executable is unsigned.

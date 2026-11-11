@@ -2,7 +2,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 
-namespace WidgetNotes;
+namespace tagme;
 
 public sealed class NotebookStore
 {
@@ -35,7 +35,7 @@ public sealed class NotebookStore
     }
     public static void Validate(Notebook b)
     {
-        if (b.Version != 1) throw new UnsupportedVersionException("This notebook version is unsupported. Open it with a compatible WidgetNotes version.");
+        if (b.Version != 1) throw new UnsupportedVersionException("This notebook version is unsupported. Open it with a compatible tagme version.");
         if (string.IsNullOrWhiteSpace(b.Id) || b.Pages is null || b.Pages.Count == 0 || b.Pages.Count > 10000) throw new InvalidDataException("Invalid notebook pages.");
         var ids = new HashSet<string>();
         void Id(string id) { if (string.IsNullOrEmpty(id) || !ids.Add(id)) throw new InvalidDataException("Missing or duplicate document identifier."); }

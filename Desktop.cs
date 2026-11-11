@@ -5,7 +5,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using Microsoft.Win32;
 
-namespace WidgetNotes;
+namespace tagme;
 
 public static class Desktop
 {
@@ -13,9 +13,10 @@ public static class Desktop
     public static void Startup(bool enabled)
     {
         using var key = Registry.CurrentUser.CreateSubKey(RunKey);
-        if (enabled) key.SetValue("WidgetNotes", $"\"{Environment.ProcessPath}\" --startup"); else key.DeleteValue("WidgetNotes", false);
+        key.DeleteValue("WidgetNotes", false);
+        if (enabled) key.SetValue("tagme", $"\"{Environment.ProcessPath}\" --startup"); else key.DeleteValue("tagme", false);
     }
-    public static bool HasStartup() { using var key = Registry.CurrentUser.OpenSubKey(RunKey); return key?.GetValue("WidgetNotes") != null; }
+    public static bool HasStartup() { using var key = Registry.CurrentUser.OpenSubKey(RunKey); return key?.GetValue("tagme") != null || key?.GetValue("WidgetNotes") != null; }
     public static bool Dark => (int?)Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme", 1) == 0;
     public static string Accent
     {
@@ -64,12 +65,12 @@ public sealed class App : System.Windows.Application
         DispatcherUnhandledException += (_, ev) =>
         {
             try { Directory.CreateDirectory(Path.GetDirectoryName(ActualSettingsFile)!); File.AppendAllText(Path.ChangeExtension(ActualSettingsFile, ".errors.log"), DateTimeOffset.Now.ToString("O") + "\n" + ev.Exception + "\n\n"); } catch { }
-            MessageBox.Show(ev.Exception.Message, "WidgetNotes — unexpected error"); ev.Handled = true;
+            MessageBox.Show(ev.Exception.Message, "tagme — unexpected error"); ev.Handled = true;
         };
         string suffix = TestRoot == null ? Environment.UserName : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(TestRoot))))[..16];
         string instance = typeof(App).Assembly.GetName().Version?.ToString() ?? "1.0.0.0";
-        mutex = new Mutex(true, "Local\\WidgetNotes-" + instance + "-" + suffix, out bool first);
-        wake = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\WidgetNotesWake-" + instance + "-" + suffix);
+        mutex = new Mutex(true, "Local\\tagme-" + instance + "-" + suffix, out bool first);
+        wake = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\tagmeWake-" + instance + "-" + suffix);
         if (!first)
         {
             // File arguments are handed to the owning process through a per-user inbox.
@@ -99,7 +100,7 @@ public sealed class App : System.Windows.Application
             }
             else store = await NewStore(pref.Root, "My notebook");
             var window = new MainWindow(store, pref); MainWindow = window;
-            tray = new System.Windows.Forms.NotifyIcon { Icon = AppArtwork.TrayIcon, Text = "WidgetNotes", Visible = true };
+            tray = new System.Windows.Forms.NotifyIcon { Icon = AppArtwork.TrayIcon, Text = "tagme", Visible = true };
             var menu = new System.Windows.Forms.ContextMenuStrip();
             menu.Items.Add("Show / hide", null, (_, _) => { if (MainWindow is MainWindow active) active.ToggleVisibility(); });
             menu.Items.Add("Find page…", null, (_, _) => { if (MainWindow is MainWindow active) active.ShowPageSearch(); });
@@ -117,7 +118,7 @@ public sealed class App : System.Windows.Application
             if (warning != null) MessageBox.Show(window, warning, "Notebook recovery");
             else if (store.Recovered) MessageBox.Show(window, "Recovered this notebook from its last good backup. The damaged file was preserved beside it.", "Notebook recovered");
         }
-        catch (Exception ex) { MessageBox.Show("WidgetNotes could not start. Your existing notebooks have not been removed.\n\n" + ex.Message, "WidgetNotes"); Shutdown(1); }
+        catch (Exception ex) { MessageBox.Show("tagme could not start. Your existing notebooks have not been removed.\n\n" + ex.Message, "tagme"); Shutdown(1); }
     }
     public static async Task<NotebookStore> NewStore(string root, string title)
     {

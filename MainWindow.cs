@@ -13,7 +13,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 
-namespace WidgetNotes;
+namespace tagme;
 
 public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
 {
@@ -51,9 +51,9 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         store = initial; pref = settings; pref.Pinned = false; pref.CompactMode = true;
         NativeGlass.EnsureResources(IsDark);
-        Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/WidgetNotes;component/Themes/Controls.xaml") });
+        Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/tagme;component/Themes/Controls.xaml") });
         page = store.Book.Pages.FirstOrDefault(p => p.Id == pref.LastPage) ?? store.Book.Pages[0];
-        Title = "WidgetNotes"; Icon = AppArtwork.WindowIcon; FontFamily = new FontFamily("Segoe UI Variable, Segoe UI"); FontSize = 13;
+        Title = "tagme"; Icon = AppArtwork.WindowIcon; FontFamily = new FontFamily("Segoe UI Variable, Segoe UI"); FontSize = 13;
         MinWidth = 360; MinHeight = 400; MaxWidth = 900; MaxHeight = 1000; Width = Math.Clamp(pref.Width, 360, 900); Height = Math.Clamp(pref.Height, 400, 1000);
         Left = double.IsFinite(pref.Left) ? pref.Left : 60; Top = double.IsFinite(pref.Top) ? pref.Top : 60;
         ClampPosition(); Topmost = false; ShowInTaskbar = MaterialDiagnostics.Enabled; ShowActivated = !App.Arguments.Contains("--startup"); NativeGlass.Configure(this);
@@ -166,7 +166,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
         glassRaised = B(dark ? "#70334A65" : "#98FFFFFF");
         inputSurface = B(dark ? "#8A0D1C30" : "#96E8EFF8");
         surface = B(dark ? "#36101F34" : "#35FFFFFF");
-        accent = B(pref.Accent == "Orange" ? dark ? "#FFBA7A" : "#C75C22" : pref.Accent == "Windows" ? Desktop.Accent : dark ? "#70CBFF" : "#1671D9");
+        accent = B(pref.Accent == "Yellow" ? dark ? "#F6D96B" : "#886411" : pref.Accent == "Orange" ? dark ? "#FFBA7A" : "#C75C22" : pref.Accent == "Windows" ? Desktop.Accent : dark ? "#70CBFF" : "#1671D9");
         Resources["TextBrush"] = foreground; Resources["MutedBrush"] = muted;
         Resources["LineBrush"] = border; Resources["PanelBrush"] = glassPanel;
         Resources["ControlBrush"] = glassRaised; Resources["InputBrush"] = inputSurface;
@@ -182,7 +182,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
     }
     void Render()
     {
-        rendering = true; title.Text = page.Title; notebookTitle.Text = "WidgetNotes  ·  " + store.Book.Title;
+        rendering = true; title.Text = page.Title; notebookTitle.Text = "tagme  ·  " + store.Book.Title;
         notebookTitle.TextTrimming = TextTrimming.CharacterEllipsis; widget.Children.Clear();
         foreach (var b in Editing.ReadingOrder(page))
         {
@@ -528,7 +528,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
     }
     async Task PasteImage()
     {
-        string temp = Path.Combine(Path.GetTempPath(), "WidgetNotes-" + Guid.NewGuid().ToString("N") + ".png");
+        string temp = Path.Combine(Path.GetTempPath(), "tagme-" + Guid.NewGuid().ToString("N") + ".png");
         try { var image = Clipboard.GetImage(); if (image == null) return; var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image)); using (var f = File.Create(temp)) encoder.Save(f); await ImportFiles([temp], "Pasted image.png"); }
         catch (Exception ex) { MessageBox.Show(ModalOwner, ex.Message, "Could not paste image"); } finally { if (File.Exists(temp)) File.Delete(temp); }
     }
@@ -555,7 +555,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         var menu = CreateMenu(); Menu(menu, "Notebooks…", ShowNotebookMenu); Menu(menu, "Rename notebook…", RenameNotebook); Menu(menu, "New page…", ShowNewPageMenu); Menu(menu, "Find page…", () => ShowPageSearch());
         Menu(menu, "Move page earlier", () => MovePage(-1)); Menu(menu, "Move page later", () => MovePage(1)); Menu(menu, "Delete page…", DeletePage); menu.Items.Add(new Separator());
-        Menu(menu, "Undo last change", Undo); Menu(menu, "Import AI / Markdown…", async () => await PickMarkdown()); Menu(menu, "Save / retry", async () => await Flush()); Menu(menu, "Export portable notebook…", ExportArchive); Menu(menu, "Open .wnote file…", async () => { var p = new OpenFileDialog { Filter = "WidgetNotes notebook|*.wnote" }; if (p.ShowDialog(ModalOwner) == true) await OpenArchive(p.FileName); });
+        Menu(menu, "Undo last change", Undo); Menu(menu, "Import AI / Markdown…", async () => await PickMarkdown()); Menu(menu, "Save / retry", async () => await Flush()); Menu(menu, "Export portable notebook…", ExportArchive); Menu(menu, "Open .wnote file…", async () => { var p = new OpenFileDialog { Filter = "tagme notebook|*.wnote" }; if (p.ShowDialog(ModalOwner) == true) await OpenArchive(p.FileName); });
         Menu(menu, "Export text…", ExportText); Menu(menu, "Print / Save as PDF…", Print); Menu(menu, "Open notebook folder", () => Desktop.Shell(store.Folder)); menu.Items.Add(new Separator());
         Menu(menu, "Settings…", Settings); Menu(menu, "Exit", async () => await ExitApp()); menu.IsOpen = true;
     }
@@ -612,7 +612,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
     }
     async void ExportArchive()
     {
-        if (busy) return; var dialog = new SaveFileDialog { Filter = "WidgetNotes notebook|*.wnote", FileName = "Notebook.wnote" }; if (dialog.ShowDialog(ModalOwner) != true) return;
+        if (busy) return; var dialog = new SaveFileDialog { Filter = "tagme notebook|*.wnote", FileName = "Notebook.wnote" }; if (dialog.ShowDialog(ModalOwner) != true) return;
         busy = true; string snapshot = Json.Write(store.Book); long saving = revision;
         try
         {
@@ -620,7 +620,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
             try { await store.Export(dialog.FileName, snapshot); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                string recovery = Path.Combine(Path.GetTempPath(), "WidgetNotesRecovery-" + Guid.NewGuid().ToString("N")); var copy = new NotebookStore(recovery, Json.Read<Notebook>(snapshot));
+                string recovery = Path.Combine(Path.GetTempPath(), "tagmeRecovery-" + Guid.NewGuid().ToString("N")); var copy = new NotebookStore(recovery, Json.Read<Notebook>(snapshot));
                 try
                 {
                     foreach (var media in store.Book.Pages.SelectMany(p => p.Blocks).Select(b => b.Media).Where(m => m != null).Distinct()) { string target = Path.Combine(recovery, media!); Directory.CreateDirectory(Path.GetDirectoryName(target)!); File.Copy(Path.Combine(store.Folder, media!), target); }
@@ -679,7 +679,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
         var panel = new StackPanel { Margin = new Thickness(22) };
         var settingsLayout = new Grid(); settingsLayout.RowDefinitions.Add(new RowDefinition()); settingsLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         settingsLayout.Children.Add(new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
-        var d = Dialog("WidgetNotes settings", settingsLayout, 520, 760);
+        var d = Dialog("tagme settings", settingsLayout, 520, 760);
         panel.Children.Add(new TextBlock { Text = "WIDGETNOTES  /  PREFERENCES", FontSize = 10, FontWeight = FontWeights.Bold, Foreground = accent, Margin = new Thickness(0, 0, 0, 5) });
         panel.Children.Add(new TextBlock { Text = "Make it feel like yours", FontSize = 25, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4) });
         panel.Children.Add(new TextBlock { Text = "A calmer space for lists, notes, and the little things to remember.", Foreground = muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 18) });
@@ -709,16 +709,16 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         var look = Group("Appearance", "A soft glass surface that follows your Windows theme.");
         var theme = Choice(look, "Theme", ["System", "Light", "Dark"], pref.Theme);
-        var color = Choice(look, "Accent color", ["Blue", "Orange", "Windows"], pref.Accent);
+        var color = Choice(look, "Accent color", ["Yellow", "Blue", "Orange", "Windows"], pref.Accent);
         var motion = Check(look, "Reduce motion", pref.ReducedMotion, "Use shorter, quieter page transitions.");
 
         var desktop = Group("Widget & startup", "Keep your notebook close without getting in the way.");
-        var startup = Check(desktop, "Open WidgetNotes when I sign in", Desktop.HasStartup(), "The installer enables this by default. You can turn it off here any time.");
+        var startup = Check(desktop, "Open tagme when I sign in", Desktop.HasStartup(), "The installer enables this by default. You can turn it off here any time.");
         var pin = Check(desktop, "Lock widget position", pref.LockWidget, "Prevents accidental moving or resizing.");
         desktop.Children.Add(new TextBlock { Text = "Show / hide shortcut", Foreground = foreground, Margin = new Thickness(0, 8, 0, 4) });
         var hotkey = new TextBox { Text = pref.Shortcut, Margin = new Thickness(0, 0, 0, 5) }; desktop.Children.Add(hotkey);
 
-        var confirmations = Group("Confirmations", "Choose when WidgetNotes should pause before a change.");
+        var confirmations = Group("Confirmations", "Choose when tagme should pause before a change.");
         var delete = Check(confirmations, "Confirm before deleting", pref.ConfirmDelete);
         var complete = Check(confirmations, "Confirm before completing tasks", pref.ConfirmComplete, "Each checklist can override this in its options menu.");
 
@@ -741,7 +741,7 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
         settingsActions.Children.Add(Btn("Cancel", () => d.Close())); settingsActions.Children.Add(save);
         var settingsFooter = new Border { Background = glassPanel, BorderBrush = border, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(16, 8, 16, 12), Child = settingsActions };
         Grid.SetRow(settingsFooter, 1); settingsLayout.Children.Add(settingsFooter);
-        panel.Children.Add(new TextBlock { Text = "WidgetNotes 1.5.1 · Desktop widget\nCtrl+N new page  ·  Ctrl+F search  ·  Ctrl+S save\nCtrl+Z undo  ·  Close hides to tray", Foreground = muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, FontSize = 11 });
+        panel.Children.Add(new TextBlock { Text = "tagme 1.6.0 · Desktop widget\nCtrl+N new page  ·  Ctrl+F search  ·  Ctrl+S save\nCtrl+Z undo  ·  Close hides to tray", Foreground = muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, FontSize = 11 });
         if (diagnostic)
         {
             d.ContentRendered += async (_, _) =>

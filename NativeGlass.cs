@@ -7,7 +7,7 @@ using System.Windows.Shell;
 using Wpf.Ui.Appearance;
 using Wpf.Ui.Controls;
 
-namespace WidgetNotes;
+namespace tagme;
 
 internal static class NativeGlass
 {

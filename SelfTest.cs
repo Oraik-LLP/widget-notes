@@ -1,12 +1,12 @@
 using System.IO.Compression;
 
-namespace WidgetNotes;
+namespace tagme;
 
 public static class SelfTest
 {
     public static int Run(string[] args)
     {
-        string root = args.FirstOrDefault(a => a.StartsWith("--test-root="))?[12..] ?? Path.Combine(Path.GetTempPath(), "WidgetNotesTests-" + Guid.NewGuid().ToString("N"));
+        string root = args.FirstOrDefault(a => a.StartsWith("--test-root="))?[12..] ?? Path.Combine(Path.GetTempPath(), "tagmeTests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root); var log = new List<string>();
         void Check(bool condition, string name) { if (!condition) throw new Exception(name); log.Add("PASS " + name); }
         async Task Reject(Func<Task> action, string name) { try { await action(); } catch { log.Add("PASS " + name); return; } throw new Exception(name); }

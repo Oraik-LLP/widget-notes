@@ -1,39 +1,11 @@
-WidgetNotes 1.5.1 — Windows x64 verification
+tagme 1.6.0 — branding release
 
-REPAIR
-- Native Acrylic remains visible while the widget is unfocused. The window's compositor appearance and non-client activation appearance are maintained without taking keyboard focus from another app.
-- During native move/resize, the blur is disabled and replaced with a soft opaque surface. Content dimensions are held fixed, and autosave scheduling pauses for the gesture.
-- The window frame is preserved during pause/resume. The prior WindowBackdropType change rebuilt WindowChrome inside the system gesture loop.
-- On release, content reflows once; the native material resumes after a 140 ms settling interval. Preferences are saved afterward rather than during the gesture.
-- Composition-change notifications cannot reactivate the blur while a gesture is paused.
-- Normal launches remain widget-only, with no taskbar button or application workspace. Startup, tray access, imports, and notebook storage are retained.
+Renamed the app, executable, tray, installer, release archive and UI to lowercase tagme. Added a yellow frosted sticky-note logo and multi-size ICO. Yellow is the default accent for new preferences.
 
-VERIFICATION
-- Release build succeeded using SDK 10.0.402 and bundled .NET runtime 10.0.13. NU1900 was reported because NuGet vulnerability data was unreachable; cached dependencies restored and compiled successfully.
-- All diagnostics below ran under the signed-in Windows user, using isolated test roots.
-- 25 storage/parser checks passed: dist/storage-release-v151/self-test.txt.
-- 6 widget/lifecycle checks passed: dist/widget-release-v151/desktop-test.txt. Real native messages verify paused material state, fixed content dimensions during resize, one reflow after release, and unchanged WindowChrome identity. Clean/dirty Close saves and hides correctly.
-- 16 UI checks passed: dist/ui-release-v151/ui-test.txt. Covers edits, completion/undo, task entry/paste, growing cards, tray entrypoint, search, images, Markdown, menus/settings/dropdowns in both themes, persistence, session-end save, and notebook archives.
-- Final UI sample: ready 705 ms; edit through render 4.0 ms. These are local samples, not frame-cadence guarantees.
-- Visible compositor verification used an animated color backdrop. The non-client correction was visually checked with Active false, KeptActive true, and Backdrop 3: background colors remained visible and updated through the frosted surface, including after pause/resume. Evidence state: dist/material-nc-v151/material-state.json.
-- The final paused surface was visually checked with Active false, KeptActive false, Backdrop 1, and opaque background #FF1D2A3B. Final restored native state: dist/material-release-v151/material-state.json.
-- The rejected older accent route rendered black on this machine and is not part of this release.
-- Installer WhatIf and git diff validation completed.
-- Installed executable hash matches the release. Fresh runtime report: version 1.5.1.0; MaterialKeptActive true; Mode Widget; Taskbar false; NativeHooked true; Ctrl+Alt+N registered. HKCU startup points to the installed EXE with --startup.
-- Installer preserves notebooks/preferences, repairs shortcuts, enables launch at sign-in, and replaces the identified legacy portable copy. Update backups remain in LocalAppData/WidgetNotes/UpdateBackups.
+Existing notebook and settings storage paths retain WidgetNotes for compatibility. Installer recognizes the older installed process, removes the old startup registration, retargets shortcuts and migrates the old .wnote default association.
 
-ARTIFACTS
-- App: dist/package/WidgetNotes.exe
-- Installer: dist/package/Install.cmd
-- ZIP: dist/WidgetNotes-1.5.1-Windows-x64.zip
-- EXE SHA-256: C1A3632BBEF78E5029BB953CE598B392B1CBDBFF0BD4928286A9ECA0F6BBC582
-- ZIP SHA-256: A2954194951B05C24B9B853B09D26B901297D6E4990566AC5A543969B8223DE4
+Build: .NET 10, Windows x64, self-contained. Build succeeded with NU1900 (NuGet vulnerability metadata unavailable).
 
-LIMITS
-- The visual diagnostic uses native gesture messages; continuous physical drag frame cadence was not measured. Tests verify that expensive blur, repeated content reflow, and window-frame recreation are removed from the gesture path.
-- This is native Windows frosted Acrylic, not the React liquid-glass refraction shader. The persistent appearance attribute is a native compatibility interface and was verified on this Windows installation.
-- The color backdrop, extra windows, animation timer, and taskbar presence exist only for --material-preview with an isolated --test-root. They are absent from ordinary launches.
-- The abandoned separate GlassLab diagnostic failed in the restricted execution account. It was stopped and is not shipped in the installer.
-- AI import reads selected/dropped local Markdown files; it does not connect to AI accounts automatically.
-- Startup registration is checked directly; no sign-out/sign-in cycle was performed.
-- The executable is unsigned. No Git remote is configured; the release tag is local and has not published a hosted GitHub release.
+Isolated verification reports: dist/tagme-storage/self-test.txt, dist/tagme-widget/desktop-test.txt and dist/tagme-ui/ui-test.txt.
+
+The renderer and widget gesture behavior are retained from 1.5.1. No physical drag frame-rate measurement or sign-in cycle was performed for this branding release. The executable remains unsigned.

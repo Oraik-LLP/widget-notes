@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace WidgetNotes;
+namespace tagme;
 
 public sealed class Notebook
 {
@@ -41,7 +41,7 @@ public sealed class Preferences
     public string? NotebookFolder { get; set; }
     public string? LastPage { get; set; }
     public string Theme { get; set; } = "System";
-    public string Accent { get; set; } = "Blue";
+    public string Accent { get; set; } = "Yellow";
     public bool ConfirmDelete { get; set; } = true;
     public bool ConfirmComplete { get; set; }
     public bool ReducedMotion { get; set; }

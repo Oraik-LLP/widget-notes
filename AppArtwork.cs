@@ -3,11 +3,11 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
-namespace WidgetNotes;
+namespace tagme;
 
 internal static class AppArtwork
 {
-    private static readonly Uri IconUri = new("pack://application:,,,/Assets/WidgetNotes.ico", UriKind.Absolute);
+    private static readonly Uri IconUri = new("pack://application:,,,/Assets/tagme.ico", UriKind.Absolute);
     public static ImageSource WindowIcon { get; } = BitmapFrame.Create(IconUri);
     public static System.Drawing.Icon TrayIcon { get; } = LoadTrayIcon();
 

@@ -1,4 +1,4 @@
-namespace WidgetNotes;
+namespace tagme;
 
 internal sealed record MarkdownSection(string Kind, string Text, List<Todo>? Tasks = null);
 internal sealed record MarkdownNote(string Title, string? Source, List<MarkdownSection> Sections);

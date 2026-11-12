@@ -548,7 +548,21 @@ public sealed class MainWindow : Wpf.Ui.Controls.FluentWindow
         catch (Exception ex) { MessageBox.Show(ModalOwner, ex.Message, "Import failed"); }
         finally { busy = false; }
     }
-    void OpenAttachment(Block b) { try { Desktop.Shell(Path.Combine(store.Folder, b.Media!)); } catch (Exception ex) { MessageBox.Show(ModalOwner, ex.Message, "Attachment could not be opened"); } }
+    void OpenAttachment(Block b)
+    {
+        try
+        {
+            if (b.Media is null) throw new InvalidDataException("This attachment has no file.");
+            string mediaRoot = Path.GetFullPath(Path.Combine(store.Folder, "media")) + Path.DirectorySeparatorChar;
+            string file = Path.GetFullPath(Path.Combine(store.Folder, b.Media));
+            if (!file.StartsWith(mediaRoot, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Attachment is outside this notebook's media folder.");
+            string[] blocked = [".exe", ".dll", ".com", ".scr", ".cpl", ".msi", ".msp", ".bat", ".cmd", ".ps1", ".psm1", ".psd1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".hta", ".lnk", ".url", ".reg", ".pif", ".scf", ".application", ".appref-ms", ".jar", ".chm"];
+            if (blocked.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase)) throw new InvalidDataException("Executable files, scripts, and shortcuts cannot be launched from a notebook.");
+            if (!File.Exists(file)) throw new FileNotFoundException("The attachment is missing.");
+            Desktop.Shell(file);
+        }
+        catch (Exception ex) { MessageBox.Show(ModalOwner, ex.Message, "Attachment could not be opened"); }
+    }
     ContextMenu CreateMenu() => lastMenu = new ContextMenu { Resources = Resources, Style = (Style)Resources[typeof(ContextMenu)] };
     void Menu(ItemsControl menu, string label, Action action) { var item = new MenuItem { Header = label }; item.Click += (_, _) => action(); menu.Items.Add(item); }
     void ShowMenu()

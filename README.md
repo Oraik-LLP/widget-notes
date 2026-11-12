@@ -6,7 +6,7 @@ A compact Windows desktop widget for notes, checklists, images, attachments, and
 
 ## Install
 
-Extract `tagme-Windows-x64.zip` and run `Install.cmd`. Per-user setup creates shortcuts, registers notebook files and an uninstaller, and enables launch at sign-in. The self-contained app needs no separately installed .NET runtime.
+Download `tagme-Setup.exe` from the [GitHub release](https://github.com/Oraik-LLP/widget-notes/releases/tag/tagme-1.6.1) and run it. Per-user setup includes notebook file registration and an uninstaller, with optional desktop shortcut and launch-at-sign-in tasks. The self-contained app needs no separately installed .NET runtime. The installer is unsigned; its SHA-256 is included with the release.
 
 Upgrading from WidgetNotes keeps existing notebooks and preferences in `Documents/WidgetNotes` and `%LOCALAPPDATA%/WidgetNotes`. These internal storage names are retained for compatibility. Setup replaces the startup registration and retargets existing shortcuts.
 
